@@ -1,0 +1,13 @@
+# Dati generati dal workflow o da scripts/serve.py
+site/data/webcams.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

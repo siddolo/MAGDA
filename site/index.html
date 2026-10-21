@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="./logo-mark-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="./logo-mark.png">
+  <meta name="description" content="Vista webcam del network autostradale italiano, con ricerca del percorso e griglia a schermo intero. Progetto open source non affiliato ad Autostrade per l'Italia.">
+  <meta property="og:title" content="MAGDA · Make Autostrade Great Damn Again">
+  <meta property="og:description" content="Webcam autostradali italiane, filtro per direzione e percorso.">
+  <meta property="og:type" content="website">
+  <title>MAGDA · Webcam autostrada</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="welcome-bg" class="welcome-bg" hidden aria-hidden="true"></div>
+
+  <header class="masthead">
+    <div class="masthead-brand">
+      <img class="brand-logo" src="./logo-mark.png" alt="" width="36" height="36">
+      <div class="masthead-text">
+        <span class="app-name">MAGDA</span>
+        <span class="app-tagline">Make Autostrade Great Damn Again</span>
+      </div>
+    </div>
+    <a class="github-link" href="https://github.com/smartm0use/MAGDA" target="_blank" rel="noopener noreferrer" aria-label="Apri il repository GitHub di MAGDA" title="Repository GitHub">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.16-.02-2.1-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z"/>
+      </svg>
+    </a>
+  </header>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1><span id="brand-title">Webcam</span> <span class="arrow" id="brand-route">Italia</span></h1>
+        <p id="subtitle">Caricamento camere…</p>
+      </div>
+    </div>
+
+    <div class="direction-tabs" role="tablist" aria-label="Direzione di marcia">
+      <button type="button" class="direction is-active" data-direction="nord" role="tab" aria-selected="true">
+        <span class="dir-arrow" aria-hidden="true">↑</span>
+        <span class="dir-label">Verso Roma</span>
+        <span class="tab-count">0</span>
+      </button>
+      <button type="button" class="direction" data-direction="sud" role="tab" aria-selected="false">
+        <span class="dir-arrow" aria-hidden="true">↓</span>
+        <span class="dir-label">Verso Napoli</span>
+        <span class="tab-count">0</span>
+      </button>
+    </div>
+
+    <div class="controls" role="toolbar" aria-label="Controlli griglia">
+      <div class="group" id="layout-group" role="group" aria-label="Layout">
+        <button type="button" class="layout is-active" data-layout="2" title="Griglia 2×2">2×2</button>
+        <button type="button" class="layout" data-layout="3" title="Griglia 3×3">3×3</button>
+        <button type="button" class="layout" data-layout="4" title="Griglia 4×4">4×4</button>
+        <button type="button" class="layout" data-layout="5" title="Griglia 5×5">5×5</button>
+        <button type="button" class="layout" data-layout="all" title="Griglia totale con tutte le camere">Tutte</button>
+      </div>
+
+      <div class="group" role="group" aria-label="Modalità">
+        <button type="button" id="mode" class="is-active" title="Passa a snapshot (tasto V)">Video</button>
+        <button type="button" id="auto" class="is-active" title="Rotazione automatica (tasto A)">AUTO 20s</button>
+      </div>
+
+      <div class="group" id="pager-group" role="group" aria-label="Paginazione">
+        <button type="button" id="prev" title="Pagina precedente (←)" aria-label="Pagina precedente">‹</button>
+        <span id="pager" class="pager">1 / 1</span>
+        <button type="button" id="next" title="Pagina successiva (→)" aria-label="Pagina successiva">›</button>
+      </div>
+
+      <div class="group" role="group" aria-label="Azioni">
+        <button type="button" id="route-toggle" title="Calcola un percorso in tutta Italia">Percorso</button>
+        <button type="button" id="refresh" title="Aggiorna dati e filmati (tasto R)">Aggiorna</button>
+        <button type="button" id="fullscreen" title="Schermo intero (tasto F)" aria-label="Attiva schermo intero">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div id="route-backdrop" class="route-backdrop" hidden></div>
+  <section id="route-panel" class="route-panel" hidden role="dialog" aria-modal="true" aria-labelledby="route-title">
+    <div class="route-panel-head">
+      <div class="route-head-main">
+        <img class="route-logo" src="./logo-mark.png" alt="" width="42" height="42">
+        <div>
+          <h2 id="route-title">Inserisci percorso</h2>
+          <p class="route-hint">Scegli partenza e arrivo per vedere le webcam lungo il tragitto.</p>
+        </div>
+      </div>
+      <button type="button" id="route-close" class="route-close" aria-label="Chiudi">×</button>
+    </div>
+
+    <div class="route-field">
+      <label for="route-from">Partenza</label>
+      <div class="route-input-wrap">
+        <span class="route-pin">A</span>
+        <input id="route-from" type="text" placeholder="Es. Milano, Bologna, Roma" autocomplete="off" spellcheck="false">
+      </div>
+      <ul id="suggest-from" class="route-suggestions" hidden></ul>
+    </div>
+
+    <div class="route-field">
+      <label for="route-to">Arrivo</label>
+      <div class="route-input-wrap">
+        <span class="route-pin pin-b">B</span>
+        <input id="route-to" type="text" placeholder="Es. Bari, Napoli, Venezia" autocomplete="off" spellcheck="false">
+      </div>
+      <ul id="suggest-to" class="route-suggestions" hidden></ul>
+    </div>
+
+    <div class="route-options">
+      <label class="route-check">
+        <input type="checkbox" id="route-both-directions" title="Se attivo mostra entrambi i sensi di marcia; se disattivo mostra solo il senso di marcia">
+        Mostra entrambi i sensi di marcia
+      </label>
+    </div>
+
+    <div class="route-actions">
+      <button type="button" id="route-submit" class="route-submit">Mostra telecamere</button>
+    </div>
+
+    <p id="route-status" class="route-status" role="status"></p>
+    <p class="route-attrib">Geocoding: OpenStreetMap / Photon · Routing: OSRM · Webcam: Autostrade per l'Italia</p>
+    <p class="route-attrib">Immagini e filmati © Autostrade per l'Italia, mostrati tramite i loro server. Progetto indipendente, non affiliato.</p>
+  </section>
+
+  <main class="stage">
+    <div id="grid" class="grid" data-cols="2" aria-label="Griglia webcam"></div>
+  </main>
+
+  <div id="error" class="error" role="alert" hidden></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
