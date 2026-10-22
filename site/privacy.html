@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="it" class="privacy-doc">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://video.autostrade.it; media-src 'self' https://video.autostrade.it; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <link rel="icon" href="./logo-mark-64.png" type="image/png">
+  <title>Informativa privacy · MAGDA</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body class="privacy-doc">
+  <main class="privacy-page">
+    <a class="privacy-back" href="./">← Torna a MAGDA</a>
+
+    <h1>Informativa sul trattamento dei dati personali</h1>
+    <p>Ultimo aggiornamento: 22 ottobre 2026.</p>
+
+    <p>MAGDA è una pagina statica ospitata su GitHub Pages. Non esiste un backend dell'app, non ci sono account, database utenti, analytics, cookie di profilazione o telemetria verso l'autore del progetto.</p>
+
+    <h2>Dati e connessioni</h2>
+    <ul>
+      <li><strong>Indirizzo IP</strong>: è visibile a GitHub Pages, che ospita il sito, e ai server di Autostrade per l'Italia quando il browser carica immagini e video delle webcam.</li>
+      <li><strong>Coordinate di partenza e arrivo</strong>: sono inserite nella URL della pagina per permettere ricarica e condivisione del percorso.</li>
+      <li><strong>Testo della ricerca località</strong>: viene inviato a Photon (Komoot) e, come fallback, a Nominatim (OpenStreetMap) per ottenere i suggerimenti.</li>
+      <li><strong>Coordinate del percorso</strong>: vengono inviate a OSRM per calcolare il tragitto.</li>
+      <li><strong>Parametri della vista</strong>: layout, direzione e modalità video/snapshot, conservati nella URL.</li>
+    </ul>
+
+    <p>Immagini e filmati non passano da un proxy: il browser contatta direttamente i CDN di Autostrade per l'Italia. Di conseguenza, quei server possono associare l'indirizzo IP dell'utente ai contenuti richiesti, che possono indicare una zona o un percorso. Questa versione statica non può evitarlo.</p>
+
+    <h2>Finalità e base giuridica</h2>
+    <p>I dati sono trattati esclusivamente per erogare la funzionalità richiesta: mostrare webcam, cercare località e calcolare percorsi. Il trattamento è necessario all'esecuzione del servizio richiesto dall'utente. Non sono previste finalità di marketing, profilazione o cessione a terzi.</p>
+
+    <h2>Terze parti</h2>
+    <ul>
+      <li><strong>GitHub Pages</strong> — hosting del sito e log tecnici secondo l'informativa di GitHub.</li>
+      <li><strong>Autostrade per l'Italia</strong> — feed webcam, immagini e video, richiesti direttamente dal browser.</li>
+      <li><strong>Photon / Komoot</strong> — geocoding primario.</li>
+      <li><strong>Nominatim / OpenStreetMap</strong> — geocoding di fallback.</li>
+      <li><strong>OSRM</strong> — calcolo del percorso.</li>
+    </ul>
+    <p>Non vengono caricati script, font o altri contenuti di terze parti oltre ai media delle webcam e alle chiamate di geocoding/routing descritte sopra.</p>
+
+    <h2>Conservazione</h2>
+    <p>L'app non conserva dati su un proprio server. Restano nel browser la cronologia, la URL corrente, la cache HTTP dei media e le eventuali cache dei risultati di geocoding, secondo le impostazioni dell'utente. I fornitori esterni possono conservare i dati secondo le rispettive informative.</p>
+
+    <h2>Sicurezza</h2>
+    <p>Tutte le chiamate esterne usano HTTPS. La pagina applica una Content Security Policy che limita script e connessioni ai domini dichiarati. Non vengono usati <code>eval</code>, script di terze parti o dipendenze runtime esterne.</p>
+
+    <h2>Diritti dell'utente</h2>
+    <p>L'utente può cancellare i dati locali svuotando la cache e la cronologia del browser. Per i dati trattati da GitHub, Autostrade, Photon, Nominatim o OSRM valgono le rispettive informative privacy. MAGDA è un progetto indipendente e non è un titolare del trattamento dei dati raccolti da questi servizi.</p>
+
+    <h2>Contenuti e condizioni d'uso</h2>
+    <p>Le webcam e i relativi filmati sono di proprietà di Autostrade per l'Italia e sono mostrati tramite i loro server pubblici, senza archiviarli né ridistribuirli. MAGDA non è affiliata ad Autostrade per l'Italia. Chi distribuisce o espone pubblicamente questa installazione deve verificare autonomamente i termini d'uso delle fonti e gli obblighi privacy applicabili.</p>
+  </main>
+</body>
+</html>

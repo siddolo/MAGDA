@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 UPSTREAM = "https://viabilita.autostrade.it/json/webcams.json"
+UPSTREAM_REFERER = "https://viabilita.autostrade.it/it/viabilita/webcam"
 VIDEO_BASE = "https://video.autostrade.it/video-mp4_hq/"
 FRAME_BASE = "https://video.autostrade.it/video-frames/"
 APP_UA = "MAGDA/1.0 (+https://github.com/smartm0use/MAGDA)"
@@ -30,12 +31,9 @@ def fetch_upstream(timeout=30):
     req = urllib.request.Request(
         UPSTREAM,
         headers={
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
-            ),
+            "User-Agent": APP_UA,
             "Accept": "application/json",
-            "Referer": "https://viabilita.autostrade.it/it/viabilita/webcam",
+            "Referer": UPSTREAM_REFERER,
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

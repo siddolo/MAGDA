@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://video.autostrade.it; media-src 'self' https://video.autostrade.it; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <link rel="icon" href="./logo-mark-64.png" type="image/png">
   <link rel="apple-touch-icon" href="./logo-mark.png">
   <meta name="description" content="Vista webcam del network autostradale italiano, con ricerca del percorso e griglia a schermo intero. Progetto open source non affiliato ad Autostrade per l'Italia.">
@@ -46,6 +47,36 @@
     </div>
     <div id="stats-body" class="stats-body" aria-live="polite">Caricamento…</div>
     <p id="stats-attrib" class="stats-attrib"></p>
+  </section>
+
+  <div id="privacy-backdrop" class="stats-backdrop" hidden></div>
+  <section id="privacy-panel" class="stats-panel privacy-panel" hidden role="dialog" aria-modal="true" aria-labelledby="privacy-heading">
+    <div class="stats-head">
+      <div>
+        <h2 id="privacy-heading">Informativa privacy</h2>
+        <p class="stats-hint">MAGDA è una pagina statica: nessun account, nessun cookie di profilazione.</p>
+      </div>
+      <button type="button" id="privacy-close" class="stats-close" aria-label="Chiudi">×</button>
+    </div>
+    <div class="privacy-body">
+      <p><strong>Nessun tracciamento da parte dell'app.</strong> Non ci sono analytics, cookie di profilazione, account o telemetria.</p>
+
+      <h3>Dati e connessioni</h3>
+      <ul>
+        <li>il browser contatta <strong>direttamente</strong> i server di Autostrade per l'Italia per immagini e video: il tuo indirizzo IP è quindi visibile a quei server;</li>
+        <li>le coordinate di partenza e arrivo sono conservate nella URL della pagina;</li>
+        <li>il testo cercato viene inviato a Photon (fallback Nominatim) e le coordinate a OSRM quando usi il percorso;</li>
+        <li>GitHub Pages, che ospita il sito, può registrare l'IP secondo la propria informativa.</li>
+      </ul>
+
+      <h3>Terze parti</h3>
+      <p>Autostrade per l'Italia (webcam e media), Photon/Komoot e Nominatim/OpenStreetMap (geocoding), OSRM (routing), GitHub Pages (hosting). Non ci sono script o font di terze parti.</p>
+
+      <h3>Conservazione</h3>
+      <p>L'app non ha un backend e non conserva dati. Restano nel browser la cronologia, la URL e la cache dei media secondo le impostazioni dell'utente.</p>
+
+      <p class="privacy-note">Le webcam restano di proprietà di Autostrade per l'Italia. Progetto indipendente, non affiliato. Per i dettagli vedi <a href="./privacy.html">l'informativa completa</a>.</p>
+    </div>
   </section>
 
   <header class="topbar">
@@ -93,6 +124,7 @@
       <div class="group" role="group" aria-label="Azioni">
         <button type="button" id="route-toggle" title="Calcola un percorso in tutta Italia">Percorso</button>
         <button type="button" id="refresh" title="Aggiorna dati e filmati (tasto R)">Aggiorna</button>
+        <button type="button" id="privacy-toggle" title="Informativa sul trattamento dei dati personali" aria-haspopup="dialog" aria-expanded="false" aria-controls="privacy-panel">Privacy</button>
         <button type="button" id="fullscreen" title="Schermo intero (tasto F)" aria-label="Attiva schermo intero">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
             <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -146,7 +178,7 @@
 
     <p id="route-status" class="route-status" role="status"></p>
     <p class="route-attrib">Geocoding: OpenStreetMap / Photon · Routing: OSRM · Webcam: Autostrade per l'Italia</p>
-    <p class="route-attrib">Immagini e filmati © Autostrade per l'Italia, mostrati tramite i loro server. Progetto indipendente, non affiliato.</p>
+    <p class="route-attrib">Immagini e filmati © Autostrade per l'Italia, mostrati tramite i loro server. Progetto indipendente, non affiliato. <a href="./privacy.html" class="linklike">Informativa privacy</a></p>
   </section>
 
   <main class="stage">

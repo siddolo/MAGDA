@@ -68,3 +68,12 @@ rispettivi proprietari.
 
 Le webcam sono mostrate tramite i loro URL pubblici, senza archiviarle né
 ridistribuirle.
+
+## Privacy
+
+MAGDA non usa cookie di profilazione, analytics o account. Essendo una pagina
+statica, il browser contatta direttamente i server di Autostrade per le immagini
+e i video: il suo indirizzo IP è quindi visibile a quei server e può essere
+associato ai contenuti richiesti. Il geocoding e il routing vengono inoltrati a
+Photon/Nominatim e OSRM. L'informativa completa è in
+[`site/privacy.html`](site/privacy.html).
