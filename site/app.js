@@ -13,6 +13,13 @@
   const directionTabs = document.querySelector(".direction-tabs");
   const brandTitle = document.getElementById("brand-title");
   const brandRoute = document.getElementById("brand-route");
+  const statsToggle = document.getElementById("stats-toggle");
+  const statsTotal = document.getElementById("stats-total");
+  const statsBackdrop = document.getElementById("stats-backdrop");
+  const statsPanel = document.getElementById("stats-panel");
+  const statsClose = document.getElementById("stats-close");
+  const statsBody = document.getElementById("stats-body");
+  const statsAttrib = document.getElementById("stats-attrib");
 
   const routeToggle = document.getElementById("route-toggle");
   const welcomeBg = document.getElementById("welcome-bg");
@@ -63,6 +70,13 @@
     ovest: { label: "OVEST", hint: "carreggiata ovest" },
   };
 
+  const STATS_CATEGORIES = [
+    ["autostrade", "Autostrade ASPI/gruppo"],
+    ["tangenziali", "Tangenziali"],
+    ["complanari", "Complanare"],
+    ["altre", "Altre strade"],
+  ];
+
   const DIRECTION_SECTORS = {
     nord: new Set(["N", "NE", "NW"]),
     sud: new Set(["S", "SE", "SW"]),
@@ -86,6 +100,8 @@
   const state = {
     cameras: [],
     allCameras: [],
+    stats: null,
+    statsFetchedAt: "",
     dataPromise: null,
     geoCache: new Map(),
     photonLast: 0,
@@ -273,6 +289,7 @@
           }
           state.allCameras = data.cameras;
           state.cameras = defaultCameras(data.cameras);
+          state.statsFetchedAt = data.fetchedAt || "";
           return data;
         })
         .catch((error) => {
@@ -1047,6 +1064,206 @@
     }, SNAPSHOT_REFRESH_MS);
   }
 
+  const numberFormat = new Intl.NumberFormat("it-IT");
+
+  function formatNumber(value) {
+    return numberFormat.format(Number(value) || 0);
+  }
+
+  function classifyRoad(code, name) {
+    const label = (name || "").toUpperCase();
+    const normalizedCode = (code || "").toUpperCase();
+    if (label.includes("TANGENZIALE")) return "tangenziali";
+    if (label.includes("COMPLANARE") || normalizedCode.startsWith("T")) {
+      return "complanari";
+    }
+    if (normalizedCode.startsWith("A")) return "autostrade";
+    return "altre";
+  }
+
+  function computeStats(cameras) {
+    const roads = new Map();
+    for (const camera of cameras || []) {
+      const code = (camera.code || "?").trim().toUpperCase() || "?";
+      let entry = roads.get(code);
+      if (!entry) {
+        entry = { code, names: new Map(), count: 0 };
+        roads.set(code, entry);
+      }
+      entry.count += 1;
+      if (camera.road) {
+        entry.names.set(camera.road, (entry.names.get(camera.road) || 0) + 1);
+      }
+    }
+
+    const categories = new Map(
+      STATS_CATEGORIES.map(([key, label]) => [
+        key,
+        { key, label, count: 0, roads: [] },
+      ])
+    );
+    for (const entry of roads.values()) {
+      let name = entry.code;
+      let best = 0;
+      for (const [candidate, count] of entry.names) {
+        if (count > best) {
+          best = count;
+          name = candidate;
+        }
+      }
+      const category = categories.get(classifyRoad(entry.code, name));
+      category.roads.push({
+        code: entry.code,
+        name,
+        count: entry.count,
+      });
+      category.count += entry.count;
+    }
+
+    const result = [];
+    for (const [key] of STATS_CATEGORIES) {
+      const category = categories.get(key);
+      if (!category.count) continue;
+      category.roads.sort((a, b) => a.code.localeCompare(b.code));
+      result.push(category);
+    }
+
+    return {
+      fetchedAt: state.statsFetchedAt,
+      total: result.reduce((sum, category) => sum + category.count, 0),
+      categories: result,
+    };
+  }
+
+  function renderStats() {
+    const stats = state.stats;
+    if (!stats) return;
+
+    statsBody.replaceChildren();
+    const table = document.createElement("table");
+    table.className = "stats-table";
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["Tipo", "Codici", "Webcam"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      if (label === "Webcam") th.className = "num";
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    table.append(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const category of stats.categories || []) {
+      const row = document.createElement("tr");
+
+      const typeCell = document.createElement("td");
+      const typeName = document.createElement("span");
+      typeName.className = "stats-type";
+      typeName.textContent = category.label;
+      const typeNote = document.createElement("span");
+      typeNote.className = "stats-type-note";
+      const roadCount = (category.roads || []).length;
+      typeNote.textContent = `${formatNumber(roadCount)} ${
+        roadCount === 1 ? "strada" : "strade"
+      }`;
+      typeCell.append(typeName, typeNote);
+
+      const codesCell = document.createElement("td");
+      const codes = document.createElement("div");
+      codes.className = "stats-codes";
+      for (const road of category.roads || []) {
+        const chip = document.createElement("span");
+        chip.className = "stats-code";
+        chip.textContent = road.code;
+        chip.title = `${road.name} — ${formatNumber(road.count)} webcam`;
+        codes.append(chip);
+      }
+      codesCell.append(codes);
+
+      const countCell = document.createElement("td");
+      countCell.className = "num";
+      countCell.textContent = formatNumber(category.count);
+
+      row.append(typeCell, codesCell, countCell);
+      tbody.append(row);
+    }
+    table.append(tbody);
+
+    const tfoot = document.createElement("tfoot");
+    const totalRow = document.createElement("tr");
+    totalRow.className = "stats-total-row";
+    const totalLabel = document.createElement("td");
+    totalLabel.colSpan = 2;
+    totalLabel.textContent = "Totale";
+    const totalCount = document.createElement("td");
+    totalCount.className = "num";
+    totalCount.textContent = formatNumber(stats.total);
+    totalRow.append(totalLabel, totalCount);
+    tfoot.append(totalRow);
+    table.append(tfoot);
+
+    statsBody.append(table);
+    const updated = stats.fetchedAt
+      ? new Date(stats.fetchedAt).toLocaleString("it-IT")
+      : "";
+    statsAttrib.textContent = updated
+      ? `Fonte: Autostrade per l'Italia · aggiornato ${updated}`
+      : "Fonte: Autostrade per l'Italia";
+  }
+
+  function updateStats() {
+    state.stats = computeStats(state.allCameras);
+    statsTotal.textContent = formatNumber(state.stats.total);
+    statsToggle.title = `Totale webcam: ${formatNumber(
+      state.stats.total
+    )} — clicca per il dettaglio`;
+    if (!statsPanel.hidden) renderStats();
+  }
+
+  async function refreshStats() {
+    try {
+      await loadData(false);
+      updateStats();
+    } catch (error) {
+      if (!state.stats) {
+        statsTotal.textContent = "—";
+        if (!statsPanel.hidden) {
+          statsBody.textContent = `Statistiche non disponibili: ${error.message}`;
+        }
+      }
+    }
+  }
+
+  function openStats() {
+    statsBackdrop.hidden = false;
+    statsPanel.hidden = false;
+    statsToggle.setAttribute("aria-expanded", "true");
+    if (!state.stats) {
+      statsBody.textContent = "Caricamento…";
+      refreshStats();
+    } else {
+      renderStats();
+    }
+    statsClose.focus();
+  }
+
+  function closeStats() {
+    statsBackdrop.hidden = true;
+    statsPanel.hidden = true;
+    statsToggle.setAttribute("aria-expanded", "false");
+    statsToggle.focus();
+  }
+
+  function toggleStats() {
+    if (statsPanel.hidden) {
+      openStats();
+    } else {
+      closeStats();
+    }
+  }
+
   async function load(force = false) {
     if (state.pendingRoute) return;
     if (state.view === "route") {
@@ -1057,6 +1274,7 @@
     if (force) state.nonce += 1;
     try {
       await loadData(true);
+      updateStats();
       clearError();
 
       const signature = state.cameras
@@ -1134,7 +1352,7 @@
       const to = state.routeTo.name || "Arrivo";
       brandTitle.textContent = "Percorso";
       brandRoute.textContent = `${from} → ${to}`;
-      document.title = `${from} → ${to} · MAGDA`;
+      document.title = `MAGDA - Webcam percorso ${from} - ${to}`;
       return;
     }
     brandTitle.textContent = "Webcam";
@@ -1730,6 +1948,9 @@
   });
 
   routeToggle.addEventListener("click", () => openRoutePanel());
+  statsToggle.addEventListener("click", toggleStats);
+  statsClose.addEventListener("click", closeStats);
+  statsBackdrop.addEventListener("click", closeStats);
   routeClose.addEventListener("click", () => {
     if (!state.welcomeMode) closeRoutePanel();
   });
@@ -1751,6 +1972,13 @@
 
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!statsPanel.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeStats();
+      }
+      return;
+    }
     if (!routePanel.hidden) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1851,7 +2079,12 @@
   }
   if (!welcome) setAuto(true);
 
+  refreshStats();
+
   state.dataTimer = setInterval(() => {
-    if (!document.hidden) load(false);
+    if (!document.hidden) {
+      load(false);
+      refreshStats();
+    }
   }, DATA_REFRESH_MS);
 })();
