@@ -18,8 +18,8 @@ Demo: <https://smartm0use.github.io/MAGDA/>
 - Calcolo del percorso (geocoding via Photon/Nominatim e routing OSRM) per
   mostrare le webcam nel raggio di 1,5 km dalla tratta, divise tra andata e
   ritorno.
-- Filtri e vista corrente salvati nella query string dell'URL, così i link sono
-  condivisibili.
+- Layout, modalità e direzione salvati nella query string dell'URL. I percorsi
+  si condividono tramite il pulsante "Copia link al percorso".
 
 ## Avvio in locale
 
@@ -56,8 +56,11 @@ Il codice di questo repository è sotto licenza [MIT](LICENSE).
 
 Il progetto è amatoriale e non ha alcun legame con Autostrade per l'Italia o
 altri gestori autostradali. Immagini, video e metadati delle webcam appartengono
-ai rispettivi titolari e non vengono salvati né ridistribuiti da questo
-repository: la pagina carica i flussi direttamente dagli URL pubblici originali.
+ai rispettivi titolari. La pagina carica i flussi in diretta dagli URL pubblici
+originali.
+
+Lo sfondo iniziale usa invece le immagini di esempio incluse, senza aggiornamenti
+automatici né richieste ai server di Autostrade dal browser.
 
 Non ci sono cookie, tracker o analytics. Visto che i flussi vengono caricati
 direttamente dal browser, i server di Autostrade (così come Photon, Nominatim e
