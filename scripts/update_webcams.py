@@ -16,6 +16,7 @@ import re
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,21 @@ UPSTREAM_REFERER = "https://viabilita.autostrade.it/it/viabilita/webcam"
 VIDEO_BASE = "https://video.autostrade.it/video-mp4_hq/"
 FRAME_BASE = "https://video.autostrade.it/video-frames/"
 APP_UA = "MAGDA/1.0 (+https://github.com/smartm0use/MAGDA)"
+ALLOWED_FEED_HOSTS = {"viabilita.autostrade.it"}
+
+
+class FeedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        destination = urllib.parse.urlsplit(newurl)
+        if (
+            destination.scheme != "https"
+            or destination.hostname not in ALLOWED_FEED_HOSTS
+            or destination.port not in (None, 443)
+            or destination.username is not None
+            or destination.password is not None
+        ):
+            raise urllib.error.URLError("Redirect del feed non consentito")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def fetch_upstream(timeout=30):
@@ -36,7 +52,8 @@ def fetch_upstream(timeout=30):
             "Referer": UPSTREAM_REFERER,
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    opener = urllib.request.build_opener(FeedRedirectHandler())
+    with opener.open(req, timeout=timeout) as resp:
         return json.load(resp)
 
 
