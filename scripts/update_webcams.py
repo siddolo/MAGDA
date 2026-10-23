@@ -11,6 +11,7 @@ Uso:
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -25,6 +26,8 @@ UPSTREAM_REFERER = "https://viabilita.autostrade.it/it/viabilita/webcam"
 VIDEO_BASE = "https://video.autostrade.it/video-mp4_hq/"
 FRAME_BASE = "https://video.autostrade.it/video-frames/"
 APP_UA = "MAGDA/1.0 (+https://github.com/smartm0use/MAGDA)"
+MAX_FEED_BYTES = 10 * 1024 * 1024
+MAX_CAMERAS = 10_000
 
 
 def fetch_upstream(timeout=30):
@@ -37,7 +40,12 @@ def fetch_upstream(timeout=30):
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.load(resp)
+        if int(resp.headers.get("Content-Length", "0")) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        payload = resp.read(MAX_FEED_BYTES + 1)
+        if len(payload) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        return json.loads(payload)
 
 
 def media_url(base, frames, key):
@@ -49,6 +57,16 @@ def media_url(base, frames, key):
 def first_frame(frames):
     keys = sorted(k for k in (frames or {}) if k.startswith("F_"))
     return media_url(FRAME_BASE, frames, keys[-1]) if keys else None
+
+
+def coordinate(value, limit):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and -limit <= number <= limit else None
 
 
 def normalize(cam):
@@ -69,8 +87,8 @@ def normalize(cam):
         "ramo": cam.get("t_des_ram") or cam.get("c_ram") or "",
         "km": cam.get("n_prg_km"),
         "direction": direction,
-        "lat": cam.get("n_crd_lat"),
-        "lon": cam.get("n_crd_lon"),
+        "lat": coordinate(cam.get("n_crd_lat"), 90),
+        "lon": coordinate(cam.get("n_crd_lon"), 180),
         "capturedAt": captured,
         "video": media_url(VIDEO_BASE, frames, "V"),
         "image": first_frame(frames),
@@ -80,9 +98,15 @@ def normalize(cam):
 
 def build_payload():
     data = fetch_upstream()
-    webcams = data.get("webcams") or []
+    webcams = data.get("webcams") if isinstance(data, dict) else None
+    if not isinstance(webcams, list) or not webcams:
+        raise ValueError("Il feed webcam è vuoto o non valido")
+    if len(webcams) > MAX_CAMERAS:
+        raise ValueError("Il feed supera il numero massimo di webcam")
     cameras = []
     for cam in webcams:
+        if not isinstance(cam, dict):
+            raise ValueError("Il feed contiene una webcam non valida")
         item = normalize(cam)
         if item["lat"] is None or item["lon"] is None:
             continue
