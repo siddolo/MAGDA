@@ -26,6 +26,7 @@
   const privacyClose = document.getElementById("privacy-close");
 
   const routeToggle = document.getElementById("route-toggle");
+  const routeShare = document.getElementById("route-share");
   const welcomeBg = document.getElementById("welcome-bg");
   const routeBackdrop = document.getElementById("route-backdrop");
   const routePanel = document.getElementById("route-panel");
@@ -1438,12 +1439,13 @@
   }
 
   function syncBrand() {
+    routeShare.disabled = !(state.view === "route" && state.route);
     if (state.view === "route" && state.routeFrom && state.routeTo) {
       const from = state.routeFrom.name || "Partenza";
       const to = state.routeTo.name || "Arrivo";
       brandTitle.textContent = "Percorso";
       brandRoute.textContent = `${from} → ${to}`;
-      document.title = `MAGDA - Webcam percorso ${from} - ${to}`;
+      document.title = "MAGDA · Webcam percorso";
       return;
     }
     brandTitle.textContent = "Webcam";
@@ -1455,26 +1457,36 @@
     const params = new URLSearchParams();
     params.set("layout", String(state.cols));
     if (state.mode === "snapshot") params.set("mode", "snapshot");
-
-    if (state.view === "route" && state.route && state.routeFrom && state.routeTo) {
-      params.set("view", "route");
-      params.set(
-        "from",
-        `${state.routeFrom.lat.toFixed(5)},${state.routeFrom.lon.toFixed(5)}`
-      );
-      params.set(
-        "to",
-        `${state.routeTo.lat.toFixed(5)},${state.routeTo.lon.toFixed(5)}`
-      );
-      params.set("fromName", state.routeFrom.name || "Partenza");
-      params.set("toName", state.routeTo.name || "Arrivo");
-      params.set("routeDir", state.routeDirection);
-      params.set("only", state.routeBothDirections ? "0" : "1");
-    } else {
-      params.set("dir", state.direction);
-    }
-
+    params.set("dir", state.direction);
     history.replaceState(null, "", `?${params.toString()}`);
+  }
+
+  async function copyRouteLink() {
+    if (!state.route || !state.routeFrom || !state.routeTo) return;
+    const url = new URL(location.href);
+    const params = new URLSearchParams();
+    params.set("view", "route");
+    params.set(
+      "from",
+      `${state.routeFrom.lat.toFixed(5)},${state.routeFrom.lon.toFixed(5)}`
+    );
+    params.set(
+      "to",
+      `${state.routeTo.lat.toFixed(5)},${state.routeTo.lon.toFixed(5)}`
+    );
+    params.set("fromName", state.routeFrom.name || "Partenza");
+    params.set("toName", state.routeTo.name || "Arrivo");
+    params.set("routeDir", state.routeDirection);
+    params.set("only", state.routeBothDirections ? "0" : "1");
+    url.hash = params.toString();
+
+    try {
+      await navigator.clipboard.writeText(url.href);
+      routeShare.textContent = "Link copiato";
+      setTimeout(() => { routeShare.textContent = "Copia link al percorso"; }, 2000);
+    } catch (error) {
+      window.prompt("Copia il link al percorso:", url.href);
+    }
   }
 
   function setLayout(value) {
@@ -2040,6 +2052,7 @@
   });
 
   routeToggle.addEventListener("click", () => openRoutePanel());
+  routeShare.addEventListener("click", copyRouteLink);
   privacyToggle.addEventListener("click", togglePrivacy);
   privacyClose.addEventListener("click", closePrivacy);
   privacyBackdrop.addEventListener("click", closePrivacy);
@@ -2119,7 +2132,10 @@
 
   function isFirstLanding() {
     const params = new URLSearchParams(location.search);
-    return !["view", "from", "to", "dir", "layout", "mode"].some((key) =>
+    if (new URLSearchParams(location.hash.slice(1)).get("view") === "route") {
+      return false;
+    }
+    return !["dir", "layout", "mode"].some((key) =>
       params.has(key)
     );
   }
@@ -2136,14 +2152,15 @@
 
     if (params.get("mode") === "snapshot") state.mode = "snapshot";
 
-    if (params.get("view") === "route") {
-      const from = parsePointParam(params.get("from"));
-      const to = parsePointParam(params.get("to"));
+    const routeParams = new URLSearchParams(location.hash.slice(1));
+    if (routeParams.get("view") === "route") {
+      const from = parsePointParam(routeParams.get("from"));
+      const to = parsePointParam(routeParams.get("to"));
       if (from && to) {
-        const fromName = params.get("fromName") || "Partenza";
-        const toName = params.get("toName") || "Arrivo";
-        const only = params.get("only") !== "0";
-        const routeDirection = params.get("routeDir") === "in" ? "in" : "out";
+        const fromName = routeParams.get("fromName") || "Partenza";
+        const toName = routeParams.get("toName") || "Arrivo";
+        const only = routeParams.get("only") !== "0";
+        const routeDirection = routeParams.get("routeDir") === "in" ? "in" : "out";
         state.pendingRoute = {
           from: { ...from, label: fromName, name: fromName },
           to: { ...to, label: toName, name: toName },
@@ -2161,9 +2178,19 @@
 
   mobileQuery.addEventListener("change", handleViewportChange);
   compactQuery.addEventListener("change", handleViewportChange);
+  window.addEventListener("hashchange", () => {
+    if (new URLSearchParams(location.hash.slice(1)).get("view") !== "route") return;
+    applyUrlState();
+    syncUrl();
+    if (state.pendingRoute) {
+      closeRoutePanel();
+      startPendingRoute();
+    }
+  });
 
   const welcome = isFirstLanding();
   applyUrlState();
+  syncUrl();
   updateTabs();
   syncLayoutButtons();
   syncModeButton();
@@ -2176,7 +2203,6 @@
   } else if (welcome) {
     openRoutePanel({ welcome: true });
   } else {
-    syncUrl();
     load(true);
   }
   if (!welcome) setAuto(true);
