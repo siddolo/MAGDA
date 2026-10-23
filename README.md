@@ -2,28 +2,28 @@
 
 ### Make Autostrade Great Damn Again
 
-Vista a griglia delle webcam autostradali italiane, con filtro per direzione,
-layout a schermo intero e ricerca di un percorso per vedere le telecamere lungo
-il tragitto. È una pagina statica: nessun backend, nessuna API key, nessun
-database.
-Progetto non affiliato ad Autostrade per l'Italia.
+Interfaccia a griglia per guardare le webcam autostradali italiane. Permette di
+filtrare per autostrada e direzione, andare a schermo intero o calcolare un
+percorso per vedere solo le telecamere lungo il tragitto. Gira tutto su pagina
+statica, senza backend.
 
 Demo: <https://smartm0use.github.io/MAGDA/>
 
-## Funzionalità
+## Cosa fa
 
-- Griglia 2×2, 3×3, 4×4, 5×5 o tutte le telecamere, con paginazione e rotazione
-  automatica.
-- Modalità video (MP4) o snapshot, con fallback automatico allo snapshot se il
-  video non è disponibile.
-- Ricerca di un percorso in tutta Italia: geocoding Photon (fallback
-  Nominatim), routing OSRM e selezione delle webcam entro 1,5 km dal percorso,
-  separate tra andata e ritorno.
-- Stato, orario di aggiornamento e link profondi tramite query string.
+- Griglia configurabile (da 2x2 a 5x5, oppure tutte assieme) con paginazione e
+  rotazione automatica.
+- Flusso video MP4 o singola immagine, con passaggio automatico allo snapshot se
+  il video non carica.
+- Calcolo del percorso (geocoding via Photon/Nominatim e routing OSRM) per
+  mostrare le webcam nel raggio di 1,5 km dalla tratta, divise tra andata e
+  ritorno.
+- Filtri e vista corrente salvati nella query string dell'URL, così i link sono
+  condivisibili.
 
-## Avvio locale
+## Avvio in locale
 
-Requisiti: Python 3.10+ (solo libreria standard) e un browser.
+Serve solo Python 3.10+ (libreria standard) e un browser.
 
 ```bash
 git clone https://github.com/smartm0use/MAGDA.git
@@ -31,10 +31,9 @@ cd MAGDA
 python3 scripts/serve.py --open
 ```
 
-Lo script scarica i dati e serve `site/` su `http://127.0.0.1:8000`.
-Per evitare il download all'avvio: `python3 scripts/serve.py --no-refresh`.
-
-In alternativa:
+`serve.py` aggiorna l'elenco delle webcam e avvia un server su
+`http://127.0.0.1:8000`. Se hai già i dati scaricati puoi saltare l'aggiornamento
+con `python3 scripts/serve.py --no-refresh`, oppure fare i due passaggi a mano:
 
 ```bash
 python3 scripts/update_webcams.py --out site/data/webcams.json
@@ -43,37 +42,24 @@ python3 -m http.server 8000 --directory site
 
 ## Deploy su GitHub Pages
 
-Il repository include già il workflow. Per pubblicarlo su un fork:
+C'è già il workflow configurato in `.github/workflows/`. Su un fork basta:
 
-1. Push del progetto sul branch `main`.
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Esegui manualmente il workflow **Deploy webcam viewer** (tab *Actions*) o
-   attendi il prossimo push/schedule.
+1. Fare push su `main`.
+2. In **Settings > Pages > Build and deployment**, impostare **Source** su
+   **GitHub Actions**.
+3. Avviare il workflow **Deploy webcam viewer** dal tab *Actions* (o aspettare
+   il primo giro schedulato).
 
-Non serve configurare secret. L'URL sarà
-`https://<utente>.github.io/<nome-repo>/`.
+## Note legali e privacy
 
-## Licenza
+Il codice di questo repository è sotto licenza [MIT](LICENSE).
 
-- **Codice**: [MIT](LICENSE).
-- **Contenuti webcam** (immagini, video, nomi e metadati della viabilità):
-  non sono inclusi in questo repository e **non sono coperti dalla licenza
-  MIT**. Restano dei rispettivi titolari, in primis Autostrade per l'Italia.
+Il progetto è amatoriale e non ha alcun legame con Autostrade per l'Italia o
+altri gestori autostradali. Immagini, video e metadati delle webcam appartengono
+ai rispettivi titolari e non vengono salvati né ridistribuiti da questo
+repository: la pagina carica i flussi direttamente dagli URL pubblici originali.
 
-## Note legali e limiti d'uso
-
-Questo è un progetto indipendente, senza alcun rapporto con Autostrade per
-l'Italia, Società Autostrade o altri gestori. I marchi citati appartengono ai
-rispettivi proprietari.
-
-Le webcam sono mostrate tramite i loro URL pubblici, senza archiviarle né
-ridistribuirle.
-
-## Privacy
-
-MAGDA non usa cookie di profilazione, analytics o account. Essendo una pagina
-statica, il browser contatta direttamente i server di Autostrade per le immagini
-e i video: il suo indirizzo IP è quindi visibile a quei server e può essere
-associato ai contenuti richiesti. Il geocoding e il routing vengono inoltrati a
-Photon/Nominatim e OSRM. L'informativa completa è in
-[`site/privacy.html`](site/privacy.html).
+Non ci sono cookie, tracker o analytics. Visto che i flussi vengono caricati
+direttamente dal browser, i server di Autostrade (così come Photon, Nominatim e
+OSRM quando si cerca un percorso) vedono l'indirizzo IP di chi visita la pagina.
+I dettagli sono in [`site/privacy.html`](site/privacy.html).
