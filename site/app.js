@@ -49,6 +49,13 @@
   const DEFAULT_KM_TO = 705;
   const DEFAULT_RADIUS = 1500;
   const MAX_RADIUS = 10_000;
+  const ROUTE_GRID_CELL = 0.05;
+  const ROUTE_SEARCH_CELLS = 2;
+  // Bound both memory (segment/cell entries, including repeated cells) and
+  // total matching work across all cameras in a single route calculation.
+  const MAX_ROUTE_POINTS = 100_000;
+  const MAX_ROUTE_GRID_ENTRIES = 250_000;
+  const MAX_ROUTE_MATCH_WORK = 2_000_000;
   const PHOTON_URL = "https://photon.komoot.io/api/";
   const PHOTON_BBOX = "6.6,35.5,18.6,47.2";
   const PHOTON_LIMIT = 20;
@@ -541,7 +548,7 @@
     const a =
       Math.sin(dp / 2) ** 2 +
       Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
-    return 2 * radius * Math.asin(Math.sqrt(a));
+    return 2 * radius * Math.asin(Math.sqrt(Math.max(0, Math.min(1, a))));
   }
 
   function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -560,10 +567,39 @@
     return names[Math.floor((bearing + 22.5) / 45) % 8];
   }
 
-  function prepareSegments(coords, cell = 0.05) {
+  function validCoordinates(lat, lon) {
+    return Number.isFinite(lat) && Number.isFinite(lon) &&
+      Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  }
+
+  function parseCoordinate(value) {
+    if (typeof value !== "number" && typeof value !== "string") return NaN;
+    if (typeof value === "string" && !value.trim()) return NaN;
+    return Number(value);
+  }
+
+  function validateRouteGeometry(coords) {
+    if (!Array.isArray(coords) || coords.length < 2) {
+      throw new Error("Geometria del percorso non disponibile");
+    }
+    if (coords.length > MAX_ROUTE_POINTS) {
+      throw new Error("Geometria del percorso troppo complessa");
+    }
+    for (const point of coords) {
+      if (!Array.isArray(point) || point.length !== 2 ||
+          !validCoordinates(point[1], point[0])) {
+        throw new Error("Coordinate del percorso non valide");
+      }
+    }
+  }
+
+  function prepareSegments(coords) {
+    validateRouteGeometry(coords);
+    const cell = ROUTE_GRID_CELL;
     const segments = [];
     const gridMap = new Map();
     let total = 0;
+    let gridEntries = 0;
 
     for (let index = 0; index < coords.length - 1; index += 1) {
       const lon1 = coords[index][0];
@@ -593,6 +629,10 @@
       const ilat1 = Math.floor(maxLat / cell);
       const ilon0 = Math.floor(minLon / cell);
       const ilon1 = Math.floor(maxLon / cell);
+      gridEntries += (ilat1 - ilat0 + 1) * (ilon1 - ilon0 + 1);
+      if (gridEntries > MAX_ROUTE_GRID_ENTRIES) {
+        throw new Error("Geometria del percorso troppo estesa o complessa");
+      }
       for (let ilat = ilat0; ilat <= ilat1; ilat += 1) {
         for (let ilon = ilon0; ilon <= ilon1; ilon += 1) {
           const gridKey = `${ilat}:${ilon}`;
@@ -602,17 +642,29 @@
       }
       total += length;
     }
-    return { segments, gridMap, total };
+    return { segments, gridMap, total, remainingWork: MAX_ROUTE_MATCH_WORK };
   }
 
-  function nearestOnRoute(lat, lon, prepared, cell = 0.05, searchCells = 2) {
+  function spendRouteWork(prepared) {
+    if (prepared.remainingWork <= 0) {
+      throw new Error("Abbinamento webcam al percorso troppo complesso");
+    }
+    prepared.remainingWork -= 1;
+  }
+
+  function nearestOnRoute(lat, lon, prepared) {
+    if (!validCoordinates(lat, lon)) return null;
+    const cell = ROUTE_GRID_CELL;
+    const searchCells = ROUTE_SEARCH_CELLS;
     const { segments, gridMap, total } = prepared;
     const ilat = Math.floor(lat / cell);
     const ilon = Math.floor(lon / cell);
     const candidates = new Set();
     for (let row = ilat - searchCells; row <= ilat + searchCells; row += 1) {
       for (let col = ilon - searchCells; col <= ilon + searchCells; col += 1) {
+        spendRouteWork(prepared);
         for (const item of gridMap.get(`${row}:${col}`) || []) {
+          spendRouteWork(prepared);
           candidates.add(item);
         }
       }
@@ -626,6 +678,7 @@
     let bestT = 0;
 
     for (const index of candidates) {
+      spendRouteWork(prepared);
       const [lat1, lon1, lat2, lon2, length] = segments[index];
       const ax = (lon1 - lon) * kx;
       const ay = (lat1 - lat) * ky;
@@ -659,9 +712,11 @@
     const matched = [];
 
     for (const camera of cameras) {
-      const lat = Number(camera.lat);
-      const lon = Number(camera.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      spendRouteWork(prepared);
+      if (!camera) continue;
+      const lat = parseCoordinate(camera.lat);
+      const lon = parseCoordinate(camera.lon);
+      if (!validCoordinates(lat, lon)) continue;
       const hit = nearestOnRoute(lat, lon, prepared);
       if (!hit || hit.distance > radius) continue;
       matched.push({
@@ -735,6 +790,10 @@
   }
 
   async function getRoute(origin, destination) {
+    if (!validCoordinates(origin.lat, origin.lon) ||
+        !validCoordinates(destination.lat, destination.lon)) {
+      throw new Error("Coordinate di partenza o arrivo non valide");
+    }
     const url =
       `${OSRM_URL}/${origin.lon},${origin.lat};${destination.lon},${destination.lat}` +
       "?overview=full&geometries=geojson&steps=false&alternatives=false";
@@ -742,9 +801,7 @@
     const route = Array.isArray(data.routes) ? data.routes[0] : null;
     if (!route || data.code !== "Ok") throw new Error("Percorso non trovato");
     const geometry = (route.geometry && route.geometry.coordinates) || [];
-    if (geometry.length < 2) {
-      throw new Error("Geometria del percorso non disponibile");
-    }
+    validateRouteGeometry(geometry);
     return {
       distance: Number(route.distance) || 0,
       duration: Number(route.duration) || 0,
@@ -1899,11 +1956,12 @@
   }
 
   function parsePointParam(raw) {
-    if (!raw) return null;
-    const [latText, lonText] = raw.split(",");
-    const lat = Number(latText);
-    const lon = Number(lonText);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (typeof raw !== "string") return null;
+    const parts = raw.split(",");
+    if (parts.length !== 2) return null;
+    const lat = parseCoordinate(parts[0]);
+    const lon = parseCoordinate(parts[1]);
+    if (!validCoordinates(lat, lon)) return null;
     return { lat, lon };
   }
 
