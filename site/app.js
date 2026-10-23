@@ -875,34 +875,67 @@
     img.loading = "lazy";
     img.decoding = "async";
     img.dataset.base = camera.image || camera.thumb || "";
-    img.src = withCacheBuster(img.dataset.base, camera.capturedAt);
     img.addEventListener("error", () => {
       img.replaceWith(missingMedia());
     });
     return img;
   }
 
+  function isTileVisible(tile) {
+    if (document.hidden) return false;
+    const fullscreenTile = document.fullscreenElement?.closest(".tile");
+    return fullscreenTile ? tile === fullscreenTile : tile.dataset.visible === "true";
+  }
+
+  function stopVideo(video) {
+    video.pause();
+    if (video.hasAttribute("src")) {
+      // Pausing alone can leave the browser downloading the rest of the clip.
+      video.removeAttribute("src");
+      video.load();
+    }
+  }
+
+  function syncTileMedia(tile) {
+    const visible = isTileVisible(tile);
+    const video = tile.querySelector("video");
+    if (video) {
+      if (visible) {
+        if (!video.hasAttribute("src")) video.src = video.dataset.src;
+        video.play().catch(() => {});
+      } else {
+        stopVideo(video);
+      }
+    }
+    if (!visible) return;
+    if (tile.dataset.thumb && !tile.style.backgroundImage) {
+      tile.style.backgroundImage = `url("${tile.dataset.thumb.replace(/"/g, "%22")}")`;
+    }
+    const img = tile.querySelector("img.snapshot");
+    if (img?.dataset.base) {
+      img.src = withCacheBuster(img.dataset.base, Date.now());
+    }
+  }
+
   const mediaObserver = new IntersectionObserver(
-    (entries, observer) => {
+    (entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const target = entry.target;
-        if (target.tagName === "VIDEO") {
-          if (target.dataset.src && !target.src) {
-            target.src = target.dataset.src;
-            target.play().catch(() => {});
-          }
-        } else if (target.dataset.thumb) {
-          target.style.backgroundImage = `url("${target.dataset.thumb.replace(
-            /"/g,
-            "%22"
-          )}")`;
-        }
-        observer.unobserve(target);
+        const tile = entry.target;
+        if (!grid.contains(tile)) continue;
+        tile.dataset.visible = String(entry.isIntersecting);
+        syncTileMedia(tile);
       }
     },
-    { root: grid, rootMargin: "200px" }
+    { root: grid }
   );
+
+  document.addEventListener("visibilitychange", () => {
+    grid.querySelectorAll(".tile").forEach(syncTileMedia);
+    startSnapshotTimer();
+  });
+  document.addEventListener("fullscreenchange", () => {
+    grid.querySelectorAll(".tile").forEach(syncTileMedia);
+  });
 
   function makeTile(camera) {
     const tile = document.createElement("article");
@@ -910,7 +943,6 @@
     tile.tabIndex = 0;
     if (camera.thumb) {
       tile.dataset.thumb = camera.thumb;
-      mediaObserver.observe(tile);
     }
     tile.setAttribute(
       "aria-label",
@@ -921,17 +953,17 @@
       const video = document.createElement("video");
       video.muted = true;
       video.loop = true;
-      video.autoplay = true;
       video.playsInline = true;
-      video.preload = "metadata";
+      video.preload = "none";
       video.dataset.src = `${camera.video}?v=${encodeURIComponent(
         camera.capturedAt || ""
       )}-${state.nonce}`;
       video.addEventListener("error", () => {
+        if (!video.hasAttribute("src")) return;
         video.replaceWith(makeSnapshot(camera));
+        syncTileMedia(tile);
       });
       tile.append(video);
-      mediaObserver.observe(video);
     } else if (camera.image || camera.thumb) {
       tile.append(makeSnapshot(camera));
     } else {
@@ -991,6 +1023,7 @@
       }
     });
 
+    mediaObserver.observe(tile);
     return tile;
   }
 
@@ -1105,8 +1138,9 @@
 
     grid.dataset.cols = String(effectiveCols());
     grid.dataset.mode = state.mode;
-    grid.replaceChildren();
+    grid.querySelectorAll("video").forEach(stopVideo);
     mediaObserver.disconnect();
+    grid.replaceChildren();
 
     if (!list.length) {
       const empty = document.createElement("div");
@@ -1166,12 +1200,12 @@
       clearInterval(state.snapshotTimer);
       state.snapshotTimer = null;
     }
-    if (state.mode !== "snapshot") return;
+    if (state.mode !== "snapshot" || document.hidden) return;
 
     state.snapshotTimer = setInterval(() => {
       if (document.hidden) return;
       document.querySelectorAll("img.snapshot").forEach((img) => {
-        if (!img.dataset.base) return;
+        if (!img.dataset.base || !isTileVisible(img.closest(".tile"))) return;
         img.src = withCacheBuster(img.dataset.base, Date.now());
       });
     }, SNAPSHOT_REFRESH_MS);
