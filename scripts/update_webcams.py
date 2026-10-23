@@ -11,6 +11,7 @@ Uso:
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -27,6 +28,8 @@ VIDEO_BASE = "https://video.autostrade.it/video-mp4_hq/"
 FRAME_BASE = "https://video.autostrade.it/video-frames/"
 APP_UA = "MAGDA/1.0 (+https://github.com/smartm0use/MAGDA)"
 ALLOWED_FEED_HOSTS = {"viabilita.autostrade.it"}
+MAX_FEED_BYTES = 10 * 1024 * 1024
+MAX_CAMERAS = 10_000
 
 
 class FeedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -54,7 +57,12 @@ def fetch_upstream(timeout=30):
     )
     opener = urllib.request.build_opener(FeedRedirectHandler())
     with opener.open(req, timeout=timeout) as resp:
-        return json.load(resp)
+        if int(resp.headers.get("Content-Length", "0")) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        payload = resp.read(MAX_FEED_BYTES + 1)
+        if len(payload) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        return json.loads(payload)
 
 
 def media_url(base, frames, key):
@@ -68,8 +76,45 @@ def first_frame(frames):
     return media_url(FRAME_BASE, frames, keys[-1]) if keys else None
 
 
+def parse_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def coordinate(value, limit):
+    number = parse_number(value)
+    return number if number is not None and -limit <= number <= limit else None
+
+
 def normalize(cam):
-    frames = cam.get("frames") or {}
+    if not isinstance(cam, dict):
+        return None
+    for key in (
+        "c_uuid", "c_mpr", "t_des_pub", "t_des", "t_des_str", "c_str",
+        "t_des_ram", "c_ram", "t_day", "t_time",
+    ):
+        if cam.get(key) is not None and not isinstance(cam[key], str):
+            return None
+    frames = cam.get("frames")
+    if frames is None:
+        frames = {}
+    if not isinstance(frames, dict):
+        return None
+    for frame in frames.values():
+        if not isinstance(frame, dict):
+            return None
+        if frame.get("t_url") is not None and not isinstance(frame["t_url"], str):
+            return None
+    lat = coordinate(cam.get("n_crd_lat"), 90)
+    lon = coordinate(cam.get("n_crd_lon"), 180)
+    km = parse_number(cam.get("n_prg_km"))
+    if lat is None or lon is None or (cam.get("n_prg_km") is not None and km is None):
+        return None
     name = cam.get("t_des_pub") or cam.get("t_des") or "Webcam"
     matches = re.findall(r"\b(nord|sud|est|ovest)\b", name.lower())
     direction = matches[-1] if matches else ""
@@ -84,10 +129,10 @@ def normalize(cam):
         "road": cam.get("t_des_str") or cam.get("c_str") or "",
         "code": cam.get("c_str") or "",
         "ramo": cam.get("t_des_ram") or cam.get("c_ram") or "",
-        "km": cam.get("n_prg_km"),
+        "km": km,
         "direction": direction,
-        "lat": cam.get("n_crd_lat"),
-        "lon": cam.get("n_crd_lon"),
+        "lat": lat,
+        "lon": lon,
         "capturedAt": captured,
         "video": media_url(VIDEO_BASE, frames, "V"),
         "image": first_frame(frames),
@@ -97,11 +142,15 @@ def normalize(cam):
 
 def build_payload():
     data = fetch_upstream()
-    webcams = data.get("webcams") or []
+    webcams = data.get("webcams") if isinstance(data, dict) else None
+    if not isinstance(webcams, list) or not webcams:
+        raise ValueError("Il feed webcam è vuoto o non valido")
+    if len(webcams) > MAX_CAMERAS:
+        raise ValueError("Il feed supera il numero massimo di webcam")
     cameras = []
     for cam in webcams:
         item = normalize(cam)
-        if item["lat"] is None or item["lon"] is None:
+        if item is None:
             continue
         cameras.append(item)
 
