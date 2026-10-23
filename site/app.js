@@ -120,6 +120,7 @@
     stats: null,
     statsFetchedAt: "",
     dataPromise: null,
+    dataLoading: false,
     geoCache: new Map(),
     photonLast: 0,
     nominatimLast: 0,
@@ -274,11 +275,10 @@
 
   async function fetchJson(url, options = {}) {
     const { timeout = 15_000, ...rest } = options;
-    const signal =
-      rest.signal ||
-      (typeof AbortSignal !== "undefined" && AbortSignal.timeout
-        ? AbortSignal.timeout(timeout)
-        : undefined);
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const signal = rest.signal
+      ? AbortSignal.any([rest.signal, timeoutSignal])
+      : timeoutSignal;
     const response = await fetch(url, {
       ...rest,
       signal,
@@ -315,13 +315,13 @@
   }
 
   function loadData(force = false) {
+    if (state.dataLoading) return state.dataPromise;
     if (force || !state.dataPromise) {
+      state.dataLoading = true;
       const url = force ? `${DATA_URL}?t=${Date.now()}` : DATA_URL;
       state.dataPromise = fetch(url, {
         cache: "no-store",
-        signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout
-          ? AbortSignal.timeout(15_000)
-          : undefined,
+        signal: AbortSignal.timeout(15_000),
       })
         .then(async (response) => {
           if (!response.ok) {
@@ -352,6 +352,9 @@
         .catch((error) => {
           state.dataPromise = null;
           throw error;
+        })
+        .finally(() => {
+          state.dataLoading = false;
         });
     }
     return state.dataPromise;
@@ -413,8 +416,10 @@
     state.nominatimLast = Date.now();
   }
 
-  async function geocodePhoton(query) {
+  async function geocodePhoton(query, signal) {
+    signal?.throwIfAborted();
     await photonThrottle();
+    signal?.throwIfAborted();
     const params = new URLSearchParams({
       q: query,
       limit: String(PHOTON_LIMIT),
@@ -423,6 +428,7 @@
     });
     const data = await fetchJson(`${PHOTON_URL}?${params.toString()}`, {
       timeout: 8000,
+      signal,
     });
     const features = Array.isArray(data.features) ? data.features : [];
     if (features.length > MAX_GEOCODE_RESULTS) {
@@ -511,8 +517,10 @@
     return prefixed.length ? prefixed : results;
   }
 
-  async function geocodeNominatim(query) {
+  async function geocodeNominatim(query, signal) {
+    signal?.throwIfAborted();
     await nominatimThrottle();
+    signal?.throwIfAborted();
     const params = new URLSearchParams({
       q: query,
       format: "jsonv2",
@@ -523,6 +531,7 @@
     });
     const data = await fetchJson(`${NOMINATIM_URL}?${params.toString()}`, {
       timeout: 8000,
+      signal,
     });
     if (Array.isArray(data) && data.length > MAX_GEOCODE_RESULTS) {
       throw new Error("Troppi risultati dal servizio di ricerca");
@@ -561,7 +570,8 @@
     return prefixed.length ? prefixed : results;
   }
 
-  async function geocode(query) {
+  async function geocode(query, signal) {
+    signal?.throwIfAborted();
     const q = (query || "").trim();
     if (q.length < 2) return [];
     const key = q.toLocaleLowerCase("it");
@@ -573,20 +583,23 @@
     let results = [];
     let primaryError = null;
     try {
-      results = await geocodePhoton(q);
+      results = await geocodePhoton(q, signal);
     } catch (error) {
+      if (signal?.aborted || error.name === "AbortError") throw error;
       primaryError = error;
     }
     if (!results.length) {
       try {
-        results = await geocodeNominatim(q);
+        results = await geocodeNominatim(q, signal);
       } catch (error) {
+        if (signal?.aborted || error.name === "AbortError") throw error;
         if (primaryError) {
           throw new Error("servizio di ricerca non disponibile");
         }
       }
     }
 
+    signal?.throwIfAborted();
     state.geoCache.set(key, { ts: Date.now(), results });
     return results;
   }
@@ -1701,6 +1714,10 @@
   }
 
   function hideSuggestions(field) {
+    clearTimeout(state.suggestionTimers[field]);
+    state.suggestionTimers[field] = null;
+    state.suggestionControllers[field]?.abort();
+    state.suggestionControllers[field] = null;
     const list = field === "from" ? suggestFrom : suggestTo;
     state.suggestionSeq[field] += 1;
     list.hidden = true;
@@ -1828,6 +1845,7 @@
     const seq = state.suggestionSeq[field];
     renderSuggestionsLoading(field);
     state.suggestionTimers[field] = setTimeout(() => {
+      state.suggestionTimers[field] = null;
       fetchSuggestions(field, query, seq);
     }, SUGGEST_DEBOUNCE_MS);
   }
@@ -1841,7 +1859,7 @@
       (field === "from" ? routeFrom : routeTo).value.trim() === query;
 
     try {
-      const results = await geocode(query);
+      const results = await geocode(query, controller.signal);
       if (!isCurrent() || routePanel.hidden) return;
       renderSuggestions(field, results);
     } catch (error) {
@@ -1852,6 +1870,10 @@
         field,
         "Ricerca non disponibile in questo momento. Riprova."
       );
+    } finally {
+      if (state.suggestionControllers[field] === controller) {
+        state.suggestionControllers[field] = null;
+      }
     }
   }
 
