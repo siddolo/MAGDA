@@ -11,6 +11,7 @@ Uso:
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -58,6 +59,16 @@ def first_frame(frames):
     return media_url(FRAME_BASE, frames, keys[-1]) if keys else None
 
 
+def coordinate(value, limit):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and -limit <= number <= limit else None
+
+
 def normalize(cam):
     frames = cam.get("frames") or {}
     name = cam.get("t_des_pub") or cam.get("t_des") or "Webcam"
@@ -76,8 +87,8 @@ def normalize(cam):
         "ramo": cam.get("t_des_ram") or cam.get("c_ram") or "",
         "km": cam.get("n_prg_km"),
         "direction": direction,
-        "lat": cam.get("n_crd_lat"),
-        "lon": cam.get("n_crd_lon"),
+        "lat": coordinate(cam.get("n_crd_lat"), 90),
+        "lon": coordinate(cam.get("n_crd_lon"), 180),
         "capturedAt": captured,
         "video": media_url(VIDEO_BASE, frames, "V"),
         "image": first_frame(frames),
