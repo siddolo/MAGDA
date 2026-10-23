@@ -11,6 +11,7 @@ Uso:
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -51,8 +52,40 @@ def first_frame(frames):
     return media_url(FRAME_BASE, frames, keys[-1]) if keys else None
 
 
+def parse_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def normalize(cam):
-    frames = cam.get("frames") or {}
+    if not isinstance(cam, dict):
+        return None
+    for key in (
+        "c_uuid", "c_mpr", "t_des_pub", "t_des", "t_des_str", "c_str",
+        "t_des_ram", "c_ram", "t_day", "t_time",
+    ):
+        if cam.get(key) is not None and not isinstance(cam[key], str):
+            return None
+    frames = cam.get("frames")
+    if frames is None:
+        frames = {}
+    if not isinstance(frames, dict):
+        return None
+    for frame in frames.values():
+        if not isinstance(frame, dict):
+            return None
+        if frame.get("t_url") is not None and not isinstance(frame["t_url"], str):
+            return None
+    lat = parse_number(cam.get("n_crd_lat"))
+    lon = parse_number(cam.get("n_crd_lon"))
+    km = parse_number(cam.get("n_prg_km"))
+    if lat is None or lon is None or (cam.get("n_prg_km") is not None and km is None):
+        return None
     name = cam.get("t_des_pub") or cam.get("t_des") or "Webcam"
     matches = re.findall(r"\b(nord|sud|est|ovest)\b", name.lower())
     direction = matches[-1] if matches else ""
@@ -67,10 +100,10 @@ def normalize(cam):
         "road": cam.get("t_des_str") or cam.get("c_str") or "",
         "code": cam.get("c_str") or "",
         "ramo": cam.get("t_des_ram") or cam.get("c_ram") or "",
-        "km": cam.get("n_prg_km"),
+        "km": km,
         "direction": direction,
-        "lat": cam.get("n_crd_lat"),
-        "lon": cam.get("n_crd_lon"),
+        "lat": lat,
+        "lon": lon,
         "capturedAt": captured,
         "video": media_url(VIDEO_BASE, frames, "V"),
         "image": first_frame(frames),
@@ -80,11 +113,13 @@ def normalize(cam):
 
 def build_payload():
     data = fetch_upstream()
-    webcams = data.get("webcams") or []
+    webcams = data.get("webcams") if isinstance(data, dict) else None
+    if not isinstance(webcams, list):
+        raise ValueError("Formato del feed webcam non valido")
     cameras = []
     for cam in webcams:
         item = normalize(cam)
-        if item["lat"] is None or item["lon"] is None:
+        if item is None:
             continue
         cameras.append(item)
 

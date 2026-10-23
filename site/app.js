@@ -273,6 +273,33 @@
       .sort((a, b) => b.km - a.km);
   }
 
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function hasStringFields(record, fields) {
+    return fields.every((key) => record[key] == null || typeof record[key] === "string");
+  }
+
+  function parseNumber(value) {
+    if (typeof value !== "number" && typeof value !== "string") return NaN;
+    if (typeof value === "string" && !value.trim()) return NaN;
+    return Number(value);
+  }
+
+  function normalizeCamera(camera) {
+    if (!isRecord(camera) || !hasStringFields(camera, [
+      "id", "name", "road", "code", "ramo", "direction", "capturedAt",
+      "video", "image", "thumb",
+    ])) return null;
+    const lat = parseNumber(camera.lat);
+    const lon = parseNumber(camera.lon);
+    const km = camera.km == null ? null : parseNumber(camera.km);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+        (km !== null && !Number.isFinite(km))) return null;
+    return { ...camera, name: camera.name || "Webcam", lat, lon, km };
+  }
+
   function loadData(force = false) {
     if (force || !state.dataPromise) {
       const url = force ? `${DATA_URL}?t=${Date.now()}` : DATA_URL;
@@ -288,13 +315,18 @@
             throw new Error(`errore HTTP ${response.status}`);
           }
           const data = await response.json();
-          if (!Array.isArray(data.cameras)) {
+          if (!isRecord(data) || !Array.isArray(data.cameras)) {
             throw new Error("formato dell'archivio webcam non valido");
           }
-          state.allCameras = data.cameras;
-          state.cameras = defaultCameras(data.cameras);
-          state.statsFetchedAt = data.fetchedAt || "";
-          return data;
+          const cameras = data.cameras.map(normalizeCamera).filter(Boolean);
+          if (!cameras.length) {
+            throw new Error("L'archivio non contiene webcam valide");
+          }
+          const fetchedAt = typeof data.fetchedAt === "string" ? data.fetchedAt : "";
+          state.allCameras = cameras;
+          state.cameras = defaultCameras(cameras);
+          state.statsFetchedAt = fetchedAt;
+          return { ...data, cameras, count: cameras.length, fetchedAt };
         })
         .catch((error) => {
           state.dataPromise = null;
@@ -376,7 +408,11 @@
     const candidates = [];
 
     features.forEach((item, index) => {
-      const properties = item.properties || {};
+      if (!isRecord(item) || !isRecord(item.properties) || !isRecord(item.geometry)) return;
+      const properties = item.properties;
+      if (!hasStringFields(properties, [
+        "countrycode", "osm_key", "name", "type", "osm_value", "county", "state", "country",
+      ])) return;
       if ((properties.countrycode || "").toUpperCase() !== "IT") return;
       if (!["place", "boundary"].includes(properties.osm_key || "")) return;
       const name = (properties.name || "").trim();
@@ -407,9 +443,9 @@
         }
       }
       const coordinates = (item.geometry && item.geometry.coordinates) || [];
-      if (coordinates.length < 2) return;
-      const lon = Number(coordinates[0]);
-      const lat = Number(coordinates[1]);
+      if (!Array.isArray(coordinates) || coordinates.length !== 2) return;
+      const lon = parseNumber(coordinates[0]);
+      const lat = parseNumber(coordinates[1]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
       const rank =
@@ -471,10 +507,14 @@
     const results = [];
     const seen = new Set();
     for (const item of Array.isArray(data) ? data : []) {
-      const lat = Number(item.lat);
-      const lon = Number(item.lon);
+      if (!isRecord(item) || !hasStringFields(item, ["display_name", "name", "type", "category"])) continue;
+      const address = item.address == null ? {} : item.address;
+      if (!isRecord(address) || !hasStringFields(address, ["county", "state", "country"])) continue;
+      const importance = item.importance == null ? 0 : parseNumber(item.importance);
+      if (!Number.isFinite(importance)) continue;
+      const lat = parseNumber(item.lat);
+      const lon = parseNumber(item.lon);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const address = item.address || {};
       const displayName = item.display_name || item.name || query;
       const name = item.name || displayName.split(",")[0];
       let label = placeLabel(address, name);
@@ -492,7 +532,7 @@
         lon,
         type: item.type || "",
         category: item.category || "",
-        importance: item.importance || 0,
+        importance,
       });
     }
     const needle = query.toLocaleLowerCase("it");
@@ -740,14 +780,23 @@
       "?overview=full&geometries=geojson&steps=false&alternatives=false";
     const data = await fetchJson(url, { timeout: 35_000 });
     const route = Array.isArray(data.routes) ? data.routes[0] : null;
-    if (!route || data.code !== "Ok") throw new Error("Percorso non trovato");
-    const geometry = (route.geometry && route.geometry.coordinates) || [];
-    if (geometry.length < 2) {
+    if (!isRecord(route) || data.code !== "Ok") throw new Error("Percorso non trovato");
+    const geometry = isRecord(route.geometry) ? route.geometry.coordinates : null;
+    if (!Array.isArray(geometry) || geometry.length < 2) {
       throw new Error("Geometria del percorso non disponibile");
     }
+    if (geometry.some((point) => !Array.isArray(point) || point.length !== 2 ||
+        !point.every(Number.isFinite))) {
+      throw new Error("Coordinate del percorso non valide");
+    }
+    const distance = route.distance == null ? 0 : parseNumber(route.distance);
+    const duration = route.duration == null ? 0 : parseNumber(route.duration);
+    if (!Number.isFinite(distance) || !Number.isFinite(duration)) {
+      throw new Error("Dati del percorso non validi");
+    }
     return {
-      distance: Number(route.distance) || 0,
-      duration: Number(route.duration) || 0,
+      distance,
+      duration,
       geometry,
     };
   }
