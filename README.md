@@ -66,8 +66,9 @@ Questo è un progetto indipendente, senza alcun rapporto con Autostrade per
 l'Italia, Società Autostrade o altri gestori. I marchi citati appartengono ai
 rispettivi proprietari.
 
-Le webcam sono mostrate tramite i loro URL pubblici, senza archiviarle né
-ridistribuirle.
+Le webcam in diretta sono mostrate tramite i loro URL pubblici. Lo sfondo
+iniziale usa invece le immagini di esempio incluse, senza aggiornamenti
+automatici né richieste ai server di Autostrade dal browser.
 
 ## Privacy
 

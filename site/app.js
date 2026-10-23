@@ -45,6 +45,8 @@
   const SUGGEST_DEBOUNCE_MS = 350;
 
   const DATA_URL = "./data/webcams.json";
+  const WELCOME_GROUP_COUNT = 10;
+  const WELCOME_IMAGE_COUNT = 8;
   const MAX_JSON_BYTES = 10 * 1024 * 1024;
   const MAX_CAMERAS = 10_000;
   const MAX_GEOCODE_RESULTS = 100;
@@ -859,14 +861,6 @@
     };
   }
 
-  function shuffle(list) {
-    for (let index = list.length - 1; index > 0; index -= 1) {
-      const swap = Math.floor(Math.random() * (index + 1));
-      [list[index], list[swap]] = [list[swap], list[index]];
-    }
-    return list;
-  }
-
   function missingMedia() {
     const div = document.createElement("div");
     div.className = "missing";
@@ -1615,44 +1609,16 @@
     routeBothDirections.checked = state.routeBothDirections;
   }
 
-  async function loadWelcomeBackground() {
+  function loadWelcomeBackground() {
     welcomeBg.replaceChildren();
-    try {
-      const data = await loadData(false);
-      if (!state.welcomeMode) return;
-
-      const pool = shuffle(
-        data.cameras.filter(
-          (camera) => (camera.thumb || camera.image) && camera.code
-        )
-      );
-      const byRoad = new Map();
-      for (const camera of pool) {
-        if (!byRoad.has(camera.code)) byRoad.set(camera.code, camera);
-      }
-      const picked = shuffle([...byRoad.values()]).slice(0, 8);
-      if (picked.length < 8) {
-        const seen = new Set(picked.map((camera) => camera.thumb || camera.image));
-        for (const camera of pool) {
-          const src = camera.thumb || camera.image;
-          if (seen.has(src)) continue;
-          picked.push(camera);
-          seen.add(src);
-          if (picked.length >= 8) break;
-        }
-      }
-
-      for (const camera of picked) {
-        const src = camera.thumb || camera.image;
-        if (!src) continue;
-        const img = document.createElement("img");
-        img.src = src;
-        img.alt = "";
-        img.decoding = "async";
-        welcomeBg.append(img);
-      }
-    } catch (error) {
-      welcomeBg.replaceChildren();
+    const group = String(Math.floor(Math.random() * WELCOME_GROUP_COUNT) + 1).padStart(2, "0");
+    for (let index = 1; index <= WELCOME_IMAGE_COUNT; index += 1) {
+      const image = String(index).padStart(2, "0");
+      const img = document.createElement("img");
+      img.src = `./assets/welcome/${group}/${image}.webp`;
+      img.alt = "";
+      img.decoding = "async";
+      welcomeBg.append(img);
     }
   }
 

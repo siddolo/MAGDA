@@ -39,7 +39,7 @@ body {
   gap: 2px;
   overflow: hidden;
   pointer-events: none;
-  filter: blur(7px) brightness(0.6) saturate(0.8);
+  filter: brightness(0.6) saturate(0.8);
   transform: scale(1.04);
 }
 
@@ -1016,7 +1016,7 @@ body.privacy-doc {
 
 body.is-welcome .route-backdrop {
   background: rgba(2, 5, 8, 0.45);
-  backdrop-filter: blur(2px) saturate(0.8);
+  backdrop-filter: saturate(0.8);
 }
 
 .route-backdrop[hidden],

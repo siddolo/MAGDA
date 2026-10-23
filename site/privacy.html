@@ -22,6 +22,7 @@
     <h2>Dati e connessioni</h2>
     <ul>
       <li><strong>Indirizzo IP</strong>: è visibile a GitHub Pages, che ospita il sito, e ai server di Autostrade per l'Italia quando il browser carica immagini e video delle webcam.</li>
+      <li><strong>Sfondo iniziale</strong>: usa immagini statiche, senza caricarle da fonti esterne.</li>
       <li><strong>Coordinate e nomi di partenza e arrivo</strong>: restano in memoria durante la consultazione, senza essere salvati automaticamente nell'URL o nel titolo della pagina. Ricaricando la pagina il percorso viene perso.</li>
       <li><strong>Condivisione del percorso</strong>: il pulsante «Copia link al percorso» genera un link con coordinate e nomi nel frammento <code>#</code>. Questo frammento non viene inviato all'hosting né negli header Referer, ma è visibile a chi riceve il link e può restare negli appunti, nei segnalibri e nella cronologia del browser. All'apertura il percorso viene letto e il frammento rimosso dalla barra degli indirizzi.</li>
       <li><strong>Testo della ricerca località</strong>: viene inviato a Photon (Komoot) e, come fallback, a Nominatim (OpenStreetMap) per ottenere i suggerimenti.</li>
@@ -29,7 +30,7 @@
       <li><strong>Parametri della vista</strong>: layout, direzione e modalità video/snapshot, conservati nella URL.</li>
     </ul>
 
-    <p>Immagini e filmati non passano da un proxy: il browser contatta direttamente i CDN di Autostrade per l'Italia. Di conseguenza, quei server possono associare l'indirizzo IP dell'utente ai contenuti richiesti, che possono indicare una zona o un percorso. Questa versione statica non può evitarlo.</p>
+    <p>Le immagini e i filmati delle webcam in diretta non passano da un proxy: il browser contatta direttamente i CDN di Autostrade per l'Italia. Di conseguenza, quei server possono associare l'indirizzo IP dell'utente ai contenuti richiesti, che possono indicare una zona o un percorso.</p>
 
     <h2>Finalità e base giuridica</h2>
     <p>I dati sono trattati esclusivamente per erogare la funzionalità richiesta: mostrare webcam, cercare località e calcolare percorsi. Il trattamento è necessario all'esecuzione del servizio richiesto dall'utente. Non sono previste finalità di marketing, profilazione o cessione a terzi.</p>
@@ -54,7 +55,7 @@
     <p>L'utente può cancellare i dati locali svuotando la cache e la cronologia del browser. Per i dati trattati da GitHub, Autostrade, Photon, Nominatim o OSRM valgono le rispettive informative privacy. MAGDA è un progetto indipendente e non è un titolare del trattamento dei dati raccolti da questi servizi.</p>
 
     <h2>Contenuti e condizioni d'uso</h2>
-    <p>Le webcam e i relativi filmati sono di proprietà di Autostrade per l'Italia e sono mostrati tramite i loro server pubblici, senza archiviarli né ridistribuirli. MAGDA non è affiliata ad Autostrade per l'Italia. Chi distribuisce o espone pubblicamente questa installazione deve verificare autonomamente i termini d'uso delle fonti e gli obblighi privacy applicabili.</p>
+    <p>Le webcam e i relativi filmati sono di proprietà di Autostrade per l'Italia. I contenuti in diretta sono mostrati tramite i loro server pubblici. MAGDA non è affiliata ad Autostrade per l'Italia. Chi distribuisce o espone pubblicamente questa installazione deve verificare autonomamente i termini d'uso delle fonti e gli obblighi privacy applicabili.</p>
   </main>
 </body>
 </html>
