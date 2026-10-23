@@ -26,6 +26,8 @@ UPSTREAM_REFERER = "https://viabilita.autostrade.it/it/viabilita/webcam"
 VIDEO_BASE = "https://video.autostrade.it/video-mp4_hq/"
 FRAME_BASE = "https://video.autostrade.it/video-frames/"
 APP_UA = "MAGDA/1.0 (+https://github.com/smartm0use/MAGDA)"
+MAX_FEED_BYTES = 10 * 1024 * 1024
+MAX_CAMERAS = 10_000
 
 
 def fetch_upstream(timeout=30):
@@ -38,7 +40,12 @@ def fetch_upstream(timeout=30):
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.load(resp)
+        if int(resp.headers.get("Content-Length", "0")) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        payload = resp.read(MAX_FEED_BYTES + 1)
+        if len(payload) > MAX_FEED_BYTES:
+            raise ValueError("Il feed webcam supera il limite di dimensione")
+        return json.loads(payload)
 
 
 def media_url(base, frames, key):
@@ -62,6 +69,11 @@ def parse_number(value):
     return number if math.isfinite(number) else None
 
 
+def coordinate(value, limit):
+    number = parse_number(value)
+    return number if number is not None and -limit <= number <= limit else None
+
+
 def normalize(cam):
     if not isinstance(cam, dict):
         return None
@@ -81,8 +93,8 @@ def normalize(cam):
             return None
         if frame.get("t_url") is not None and not isinstance(frame["t_url"], str):
             return None
-    lat = parse_number(cam.get("n_crd_lat"))
-    lon = parse_number(cam.get("n_crd_lon"))
+    lat = coordinate(cam.get("n_crd_lat"), 90)
+    lon = coordinate(cam.get("n_crd_lon"), 180)
     km = parse_number(cam.get("n_prg_km"))
     if lat is None or lon is None or (cam.get("n_prg_km") is not None and km is None):
         return None
@@ -114,8 +126,10 @@ def normalize(cam):
 def build_payload():
     data = fetch_upstream()
     webcams = data.get("webcams") if isinstance(data, dict) else None
-    if not isinstance(webcams, list):
-        raise ValueError("Formato del feed webcam non valido")
+    if not isinstance(webcams, list) or not webcams:
+        raise ValueError("Il feed webcam è vuoto o non valido")
+    if len(webcams) > MAX_CAMERAS:
+        raise ValueError("Il feed supera il numero massimo di webcam")
     cameras = []
     for cam in webcams:
         item = normalize(cam)

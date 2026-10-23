@@ -26,6 +26,7 @@
   const privacyClose = document.getElementById("privacy-close");
 
   const routeToggle = document.getElementById("route-toggle");
+  const routeShare = document.getElementById("route-share");
   const welcomeBg = document.getElementById("welcome-bg");
   const routeBackdrop = document.getElementById("route-backdrop");
   const routePanel = document.getElementById("route-panel");
@@ -44,11 +45,23 @@
   const SUGGEST_DEBOUNCE_MS = 350;
 
   const DATA_URL = "./data/webcams.json";
+  const WELCOME_GROUP_COUNT = 10;
+  const WELCOME_IMAGE_COUNT = 8;
+  const MAX_JSON_BYTES = 10 * 1024 * 1024;
+  const MAX_CAMERAS = 10_000;
+  const MAX_GEOCODE_RESULTS = 100;
   const DEFAULT_ROAD = "A01";
   const DEFAULT_KM_FROM = 570;
   const DEFAULT_KM_TO = 705;
   const DEFAULT_RADIUS = 1500;
   const MAX_RADIUS = 10_000;
+  const ROUTE_GRID_CELL = 0.05;
+  const ROUTE_SEARCH_CELLS = 2;
+  // Bound both memory (segment/cell entries, including repeated cells) and
+  // total matching work across all cameras in a single route calculation.
+  const MAX_ROUTE_POINTS = 100_000;
+  const MAX_ROUTE_GRID_ENTRIES = 250_000;
+  const MAX_ROUTE_MATCH_WORK = 2_000_000;
   const PHOTON_URL = "https://photon.komoot.io/api/";
   const PHOTON_BBOX = "6.6,35.5,18.6,47.2";
   const PHOTON_LIMIT = 20;
@@ -107,6 +120,7 @@
     stats: null,
     statsFetchedAt: "",
     dataPromise: null,
+    dataLoading: false,
     geoCache: new Map(),
     photonLast: 0,
     nominatimLast: 0,
@@ -232,13 +246,39 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  async function readJson(response) {
+    if (Number(response.headers.get("Content-Length")) > MAX_JSON_BYTES) {
+      if (response.body) await response.body.cancel();
+      throw new Error("Risposta troppo grande");
+    }
+    if (!response.body) throw new Error("Risposta vuota");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    let text = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_JSON_BYTES) throw new Error("Risposta troppo grande");
+        text += decoder.decode(value, { stream: true });
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(text + decoder.decode());
+  }
+
   async function fetchJson(url, options = {}) {
     const { timeout = 15_000, ...rest } = options;
-    const signal =
-      rest.signal ||
-      (typeof AbortSignal !== "undefined" && AbortSignal.timeout
-        ? AbortSignal.timeout(timeout)
-        : undefined);
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const signal = rest.signal
+      ? AbortSignal.any([rest.signal, timeoutSignal])
+      : timeoutSignal;
     const response = await fetch(url, {
       ...rest,
       signal,
@@ -246,8 +286,9 @@
     });
     let data = null;
     try {
-      data = await response.json();
+      data = await readJson(response);
     } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       data = null;
     }
     if (!response.ok) {
@@ -295,15 +336,20 @@
     const lat = parseNumber(camera.lat);
     const lon = parseNumber(camera.lon);
     const km = camera.km == null ? null : parseNumber(camera.km);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+    if (!validCoordinates(lat, lon) ||
         (km !== null && !Number.isFinite(km))) return null;
     return { ...camera, name: camera.name || "Webcam", lat, lon, km };
   }
 
   function loadData(force = false) {
+    if (state.dataLoading) return state.dataPromise;
     if (force || !state.dataPromise) {
+      state.dataLoading = true;
       const url = force ? `${DATA_URL}?t=${Date.now()}` : DATA_URL;
-      state.dataPromise = fetch(url, { cache: "no-store" })
+      state.dataPromise = fetch(url, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      })
         .then(async (response) => {
           if (!response.ok) {
             if (response.status === 404) {
@@ -314,9 +360,12 @@
             }
             throw new Error(`errore HTTP ${response.status}`);
           }
-          const data = await response.json();
+          const data = await readJson(response);
           if (!isRecord(data) || !Array.isArray(data.cameras)) {
             throw new Error("formato dell'archivio webcam non valido");
+          }
+          if (data.cameras.length > MAX_CAMERAS) {
+            throw new Error("L'archivio supera il numero massimo di webcam");
           }
           const cameras = data.cameras.map(normalizeCamera).filter(Boolean);
           if (!cameras.length) {
@@ -331,6 +380,9 @@
         .catch((error) => {
           state.dataPromise = null;
           throw error;
+        })
+        .finally(() => {
+          state.dataLoading = false;
         });
     }
     return state.dataPromise;
@@ -392,8 +444,10 @@
     state.nominatimLast = Date.now();
   }
 
-  async function geocodePhoton(query) {
+  async function geocodePhoton(query, signal) {
+    signal?.throwIfAborted();
     await photonThrottle();
+    signal?.throwIfAborted();
     const params = new URLSearchParams({
       q: query,
       limit: String(PHOTON_LIMIT),
@@ -402,8 +456,12 @@
     });
     const data = await fetchJson(`${PHOTON_URL}?${params.toString()}`, {
       timeout: 8000,
+      signal,
     });
     const features = Array.isArray(data.features) ? data.features : [];
+    if (features.length > MAX_GEOCODE_RESULTS) {
+      throw new Error("Troppi risultati dal servizio di ricerca");
+    }
     const needle = query.toLocaleLowerCase("it");
     const candidates = [];
 
@@ -491,8 +549,10 @@
     return prefixed.length ? prefixed : results;
   }
 
-  async function geocodeNominatim(query) {
+  async function geocodeNominatim(query, signal) {
+    signal?.throwIfAborted();
     await nominatimThrottle();
+    signal?.throwIfAborted();
     const params = new URLSearchParams({
       q: query,
       format: "jsonv2",
@@ -503,7 +563,11 @@
     });
     const data = await fetchJson(`${NOMINATIM_URL}?${params.toString()}`, {
       timeout: 8000,
+      signal,
     });
+    if (Array.isArray(data) && data.length > MAX_GEOCODE_RESULTS) {
+      throw new Error("Troppi risultati dal servizio di ricerca");
+    }
     const results = [];
     const seen = new Set();
     for (const item of Array.isArray(data) ? data : []) {
@@ -542,7 +606,8 @@
     return prefixed.length ? prefixed : results;
   }
 
-  async function geocode(query) {
+  async function geocode(query, signal) {
+    signal?.throwIfAborted();
     const q = (query || "").trim();
     if (q.length < 2) return [];
     const key = q.toLocaleLowerCase("it");
@@ -554,20 +619,23 @@
     let results = [];
     let primaryError = null;
     try {
-      results = await geocodePhoton(q);
+      results = await geocodePhoton(q, signal);
     } catch (error) {
+      if (signal?.aborted || error.name === "AbortError") throw error;
       primaryError = error;
     }
     if (!results.length) {
       try {
-        results = await geocodeNominatim(q);
+        results = await geocodeNominatim(q, signal);
       } catch (error) {
+        if (signal?.aborted || error.name === "AbortError") throw error;
         if (primaryError) {
           throw new Error("servizio di ricerca non disponibile");
         }
       }
     }
 
+    signal?.throwIfAborted();
     state.geoCache.set(key, { ts: Date.now(), results });
     return results;
   }
@@ -581,7 +649,7 @@
     const a =
       Math.sin(dp / 2) ** 2 +
       Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
-    return 2 * radius * Math.asin(Math.sqrt(a));
+    return 2 * radius * Math.asin(Math.sqrt(Math.max(0, Math.min(1, a))));
   }
 
   function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -600,10 +668,39 @@
     return names[Math.floor((bearing + 22.5) / 45) % 8];
   }
 
-  function prepareSegments(coords, cell = 0.05) {
+  function validCoordinates(lat, lon) {
+    return Number.isFinite(lat) && Number.isFinite(lon) &&
+      Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  }
+
+  function parseCoordinate(value) {
+    if (typeof value !== "number" && typeof value !== "string") return NaN;
+    if (typeof value === "string" && !value.trim()) return NaN;
+    return Number(value);
+  }
+
+  function validateRouteGeometry(coords) {
+    if (!Array.isArray(coords) || coords.length < 2) {
+      throw new Error("Geometria del percorso non disponibile");
+    }
+    if (coords.length > MAX_ROUTE_POINTS) {
+      throw new Error("Geometria del percorso troppo complessa");
+    }
+    for (const point of coords) {
+      if (!Array.isArray(point) || point.length !== 2 ||
+          !validCoordinates(point[1], point[0])) {
+        throw new Error("Coordinate del percorso non valide");
+      }
+    }
+  }
+
+  function prepareSegments(coords) {
+    validateRouteGeometry(coords);
+    const cell = ROUTE_GRID_CELL;
     const segments = [];
     const gridMap = new Map();
     let total = 0;
+    let gridEntries = 0;
 
     for (let index = 0; index < coords.length - 1; index += 1) {
       const lon1 = coords[index][0];
@@ -633,6 +730,10 @@
       const ilat1 = Math.floor(maxLat / cell);
       const ilon0 = Math.floor(minLon / cell);
       const ilon1 = Math.floor(maxLon / cell);
+      gridEntries += (ilat1 - ilat0 + 1) * (ilon1 - ilon0 + 1);
+      if (gridEntries > MAX_ROUTE_GRID_ENTRIES) {
+        throw new Error("Geometria del percorso troppo estesa o complessa");
+      }
       for (let ilat = ilat0; ilat <= ilat1; ilat += 1) {
         for (let ilon = ilon0; ilon <= ilon1; ilon += 1) {
           const gridKey = `${ilat}:${ilon}`;
@@ -642,17 +743,29 @@
       }
       total += length;
     }
-    return { segments, gridMap, total };
+    return { segments, gridMap, total, remainingWork: MAX_ROUTE_MATCH_WORK };
   }
 
-  function nearestOnRoute(lat, lon, prepared, cell = 0.05, searchCells = 2) {
+  function spendRouteWork(prepared) {
+    if (prepared.remainingWork <= 0) {
+      throw new Error("Abbinamento webcam al percorso troppo complesso");
+    }
+    prepared.remainingWork -= 1;
+  }
+
+  function nearestOnRoute(lat, lon, prepared) {
+    if (!validCoordinates(lat, lon)) return null;
+    const cell = ROUTE_GRID_CELL;
+    const searchCells = ROUTE_SEARCH_CELLS;
     const { segments, gridMap, total } = prepared;
     const ilat = Math.floor(lat / cell);
     const ilon = Math.floor(lon / cell);
     const candidates = new Set();
     for (let row = ilat - searchCells; row <= ilat + searchCells; row += 1) {
       for (let col = ilon - searchCells; col <= ilon + searchCells; col += 1) {
+        spendRouteWork(prepared);
         for (const item of gridMap.get(`${row}:${col}`) || []) {
+          spendRouteWork(prepared);
           candidates.add(item);
         }
       }
@@ -666,6 +779,7 @@
     let bestT = 0;
 
     for (const index of candidates) {
+      spendRouteWork(prepared);
       const [lat1, lon1, lat2, lon2, length] = segments[index];
       const ax = (lon1 - lon) * kx;
       const ay = (lat1 - lat) * ky;
@@ -699,9 +813,11 @@
     const matched = [];
 
     for (const camera of cameras) {
-      const lat = Number(camera.lat);
-      const lon = Number(camera.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      spendRouteWork(prepared);
+      if (!camera) continue;
+      const lat = parseCoordinate(camera.lat);
+      const lon = parseCoordinate(camera.lon);
+      if (!validCoordinates(lat, lon)) continue;
       const hit = nearestOnRoute(lat, lon, prepared);
       if (!hit || hit.distance > radius) continue;
       matched.push({
@@ -775,6 +891,10 @@
   }
 
   async function getRoute(origin, destination) {
+    if (!validCoordinates(origin.lat, origin.lon) ||
+        !validCoordinates(destination.lat, destination.lon)) {
+      throw new Error("Coordinate di partenza o arrivo non valide");
+    }
     const url =
       `${OSRM_URL}/${origin.lon},${origin.lat};${destination.lon},${destination.lat}` +
       "?overview=full&geometries=geojson&steps=false&alternatives=false";
@@ -782,13 +902,7 @@
     const route = Array.isArray(data.routes) ? data.routes[0] : null;
     if (!isRecord(route) || data.code !== "Ok") throw new Error("Percorso non trovato");
     const geometry = isRecord(route.geometry) ? route.geometry.coordinates : null;
-    if (!Array.isArray(geometry) || geometry.length < 2) {
-      throw new Error("Geometria del percorso non disponibile");
-    }
-    if (geometry.some((point) => !Array.isArray(point) || point.length !== 2 ||
-        !point.every(Number.isFinite))) {
-      throw new Error("Coordinate del percorso non valide");
-    }
+    validateRouteGeometry(geometry);
     const distance = route.distance == null ? 0 : parseNumber(route.distance);
     const duration = route.duration == null ? 0 : parseNumber(route.duration);
     if (!Number.isFinite(distance) || !Number.isFinite(duration)) {
@@ -799,14 +913,6 @@
       duration,
       geometry,
     };
-  }
-
-  function shuffle(list) {
-    for (let index = list.length - 1; index > 0; index -= 1) {
-      const swap = Math.floor(Math.random() * (index + 1));
-      [list[index], list[swap]] = [list[swap], list[index]];
-    }
-    return list;
   }
 
   function missingMedia() {
@@ -823,34 +929,67 @@
     img.loading = "lazy";
     img.decoding = "async";
     img.dataset.base = camera.image || camera.thumb || "";
-    img.src = withCacheBuster(img.dataset.base, camera.capturedAt);
     img.addEventListener("error", () => {
       img.replaceWith(missingMedia());
     });
     return img;
   }
 
+  function isTileVisible(tile) {
+    if (document.hidden) return false;
+    const fullscreenTile = document.fullscreenElement?.closest(".tile");
+    return fullscreenTile ? tile === fullscreenTile : tile.dataset.visible === "true";
+  }
+
+  function stopVideo(video) {
+    video.pause();
+    if (video.hasAttribute("src")) {
+      // Pausing alone can leave the browser downloading the rest of the clip.
+      video.removeAttribute("src");
+      video.load();
+    }
+  }
+
+  function syncTileMedia(tile) {
+    const visible = isTileVisible(tile);
+    const video = tile.querySelector("video");
+    if (video) {
+      if (visible) {
+        if (!video.hasAttribute("src")) video.src = video.dataset.src;
+        video.play().catch(() => {});
+      } else {
+        stopVideo(video);
+      }
+    }
+    if (!visible) return;
+    if (tile.dataset.thumb && !tile.style.backgroundImage) {
+      tile.style.backgroundImage = `url("${tile.dataset.thumb.replace(/"/g, "%22")}")`;
+    }
+    const img = tile.querySelector("img.snapshot");
+    if (img?.dataset.base) {
+      img.src = withCacheBuster(img.dataset.base, Date.now());
+    }
+  }
+
   const mediaObserver = new IntersectionObserver(
-    (entries, observer) => {
+    (entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const target = entry.target;
-        if (target.tagName === "VIDEO") {
-          if (target.dataset.src && !target.src) {
-            target.src = target.dataset.src;
-            target.play().catch(() => {});
-          }
-        } else if (target.dataset.thumb) {
-          target.style.backgroundImage = `url("${target.dataset.thumb.replace(
-            /"/g,
-            "%22"
-          )}")`;
-        }
-        observer.unobserve(target);
+        const tile = entry.target;
+        if (!grid.contains(tile)) continue;
+        tile.dataset.visible = String(entry.isIntersecting);
+        syncTileMedia(tile);
       }
     },
-    { root: grid, rootMargin: "200px" }
+    { root: grid }
   );
+
+  document.addEventListener("visibilitychange", () => {
+    grid.querySelectorAll(".tile").forEach(syncTileMedia);
+    startSnapshotTimer();
+  });
+  document.addEventListener("fullscreenchange", () => {
+    grid.querySelectorAll(".tile").forEach(syncTileMedia);
+  });
 
   function makeTile(camera) {
     const tile = document.createElement("article");
@@ -858,7 +997,6 @@
     tile.tabIndex = 0;
     if (camera.thumb) {
       tile.dataset.thumb = camera.thumb;
-      mediaObserver.observe(tile);
     }
     tile.setAttribute(
       "aria-label",
@@ -869,17 +1007,17 @@
       const video = document.createElement("video");
       video.muted = true;
       video.loop = true;
-      video.autoplay = true;
       video.playsInline = true;
-      video.preload = "metadata";
+      video.preload = "none";
       video.dataset.src = `${camera.video}?v=${encodeURIComponent(
         camera.capturedAt || ""
       )}-${state.nonce}`;
       video.addEventListener("error", () => {
+        if (!video.hasAttribute("src")) return;
         video.replaceWith(makeSnapshot(camera));
+        syncTileMedia(tile);
       });
       tile.append(video);
-      mediaObserver.observe(video);
     } else if (camera.image || camera.thumb) {
       tile.append(makeSnapshot(camera));
     } else {
@@ -939,6 +1077,7 @@
       }
     });
 
+    mediaObserver.observe(tile);
     return tile;
   }
 
@@ -1053,8 +1192,9 @@
 
     grid.dataset.cols = String(effectiveCols());
     grid.dataset.mode = state.mode;
-    grid.replaceChildren();
+    grid.querySelectorAll("video").forEach(stopVideo);
     mediaObserver.disconnect();
+    grid.replaceChildren();
 
     if (!list.length) {
       const empty = document.createElement("div");
@@ -1114,12 +1254,12 @@
       clearInterval(state.snapshotTimer);
       state.snapshotTimer = null;
     }
-    if (state.mode !== "snapshot") return;
+    if (state.mode !== "snapshot" || document.hidden) return;
 
     state.snapshotTimer = setInterval(() => {
       if (document.hidden) return;
       document.querySelectorAll("img.snapshot").forEach((img) => {
-        if (!img.dataset.base) return;
+        if (!img.dataset.base || !isTileVisible(img.closest(".tile"))) return;
         img.src = withCacheBuster(img.dataset.base, Date.now());
       });
     }, SNAPSHOT_REFRESH_MS);
@@ -1430,12 +1570,13 @@
   }
 
   function syncBrand() {
+    routeShare.disabled = !(state.view === "route" && state.route);
     if (state.view === "route" && state.routeFrom && state.routeTo) {
       const from = state.routeFrom.name || "Partenza";
       const to = state.routeTo.name || "Arrivo";
       brandTitle.textContent = "Percorso";
       brandRoute.textContent = `${from} → ${to}`;
-      document.title = `MAGDA - Webcam percorso ${from} - ${to}`;
+      document.title = "MAGDA · Webcam percorso";
       return;
     }
     brandTitle.textContent = "Webcam";
@@ -1447,26 +1588,36 @@
     const params = new URLSearchParams();
     params.set("layout", String(state.cols));
     if (state.mode === "snapshot") params.set("mode", "snapshot");
-
-    if (state.view === "route" && state.route && state.routeFrom && state.routeTo) {
-      params.set("view", "route");
-      params.set(
-        "from",
-        `${state.routeFrom.lat.toFixed(5)},${state.routeFrom.lon.toFixed(5)}`
-      );
-      params.set(
-        "to",
-        `${state.routeTo.lat.toFixed(5)},${state.routeTo.lon.toFixed(5)}`
-      );
-      params.set("fromName", state.routeFrom.name || "Partenza");
-      params.set("toName", state.routeTo.name || "Arrivo");
-      params.set("routeDir", state.routeDirection);
-      params.set("only", state.routeBothDirections ? "0" : "1");
-    } else {
-      params.set("dir", state.direction);
-    }
-
+    params.set("dir", state.direction);
     history.replaceState(null, "", `?${params.toString()}`);
+  }
+
+  async function copyRouteLink() {
+    if (!state.route || !state.routeFrom || !state.routeTo) return;
+    const url = new URL(location.href);
+    const params = new URLSearchParams();
+    params.set("view", "route");
+    params.set(
+      "from",
+      `${state.routeFrom.lat.toFixed(5)},${state.routeFrom.lon.toFixed(5)}`
+    );
+    params.set(
+      "to",
+      `${state.routeTo.lat.toFixed(5)},${state.routeTo.lon.toFixed(5)}`
+    );
+    params.set("fromName", state.routeFrom.name || "Partenza");
+    params.set("toName", state.routeTo.name || "Arrivo");
+    params.set("routeDir", state.routeDirection);
+    params.set("only", state.routeBothDirections ? "0" : "1");
+    url.hash = params.toString();
+
+    try {
+      await navigator.clipboard.writeText(url.href);
+      routeShare.textContent = "Link copiato";
+      setTimeout(() => { routeShare.textContent = "Copia link al percorso"; }, 2000);
+    } catch (error) {
+      window.prompt("Copia il link al percorso:", url.href);
+    }
   }
 
   function setLayout(value) {
@@ -1546,44 +1697,16 @@
     routeBothDirections.checked = state.routeBothDirections;
   }
 
-  async function loadWelcomeBackground() {
+  function loadWelcomeBackground() {
     welcomeBg.replaceChildren();
-    try {
-      const data = await loadData(false);
-      if (!state.welcomeMode) return;
-
-      const pool = shuffle(
-        data.cameras.filter(
-          (camera) => (camera.thumb || camera.image) && camera.code
-        )
-      );
-      const byRoad = new Map();
-      for (const camera of pool) {
-        if (!byRoad.has(camera.code)) byRoad.set(camera.code, camera);
-      }
-      const picked = shuffle([...byRoad.values()]).slice(0, 8);
-      if (picked.length < 8) {
-        const seen = new Set(picked.map((camera) => camera.thumb || camera.image));
-        for (const camera of pool) {
-          const src = camera.thumb || camera.image;
-          if (seen.has(src)) continue;
-          picked.push(camera);
-          seen.add(src);
-          if (picked.length >= 8) break;
-        }
-      }
-
-      for (const camera of picked) {
-        const src = camera.thumb || camera.image;
-        if (!src) continue;
-        const img = document.createElement("img");
-        img.src = src;
-        img.alt = "";
-        img.decoding = "async";
-        welcomeBg.append(img);
-      }
-    } catch (error) {
-      welcomeBg.replaceChildren();
+    const group = String(Math.floor(Math.random() * WELCOME_GROUP_COUNT) + 1).padStart(2, "0");
+    for (let index = 1; index <= WELCOME_IMAGE_COUNT; index += 1) {
+      const image = String(index).padStart(2, "0");
+      const img = document.createElement("img");
+      img.src = `./assets/welcome/${group}/${image}.webp`;
+      img.alt = "";
+      img.decoding = "async";
+      welcomeBg.append(img);
     }
   }
 
@@ -1632,6 +1755,10 @@
   }
 
   function hideSuggestions(field) {
+    clearTimeout(state.suggestionTimers[field]);
+    state.suggestionTimers[field] = null;
+    state.suggestionControllers[field]?.abort();
+    state.suggestionControllers[field] = null;
     const list = field === "from" ? suggestFrom : suggestTo;
     state.suggestionSeq[field] += 1;
     list.hidden = true;
@@ -1759,6 +1886,7 @@
     const seq = state.suggestionSeq[field];
     renderSuggestionsLoading(field);
     state.suggestionTimers[field] = setTimeout(() => {
+      state.suggestionTimers[field] = null;
       fetchSuggestions(field, query, seq);
     }, SUGGEST_DEBOUNCE_MS);
   }
@@ -1772,7 +1900,7 @@
       (field === "from" ? routeFrom : routeTo).value.trim() === query;
 
     try {
-      const results = await geocode(query);
+      const results = await geocode(query, controller.signal);
       if (!isCurrent() || routePanel.hidden) return;
       renderSuggestions(field, results);
     } catch (error) {
@@ -1783,6 +1911,10 @@
         field,
         "Ricerca non disponibile in questo momento. Riprova."
       );
+    } finally {
+      if (state.suggestionControllers[field] === controller) {
+        state.suggestionControllers[field] = null;
+      }
     }
   }
 
@@ -1948,11 +2080,12 @@
   }
 
   function parsePointParam(raw) {
-    if (!raw) return null;
-    const [latText, lonText] = raw.split(",");
-    const lat = Number(latText);
-    const lon = Number(lonText);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (typeof raw !== "string") return null;
+    const parts = raw.split(",");
+    if (parts.length !== 2) return null;
+    const lat = parseCoordinate(parts[0]);
+    const lon = parseCoordinate(parts[1]);
+    if (!validCoordinates(lat, lon)) return null;
     return { lat, lon };
   }
 
@@ -2031,6 +2164,7 @@
   });
 
   routeToggle.addEventListener("click", () => openRoutePanel());
+  routeShare.addEventListener("click", copyRouteLink);
   privacyToggle.addEventListener("click", togglePrivacy);
   privacyClose.addEventListener("click", closePrivacy);
   privacyBackdrop.addEventListener("click", closePrivacy);
@@ -2110,7 +2244,10 @@
 
   function isFirstLanding() {
     const params = new URLSearchParams(location.search);
-    return !["view", "from", "to", "dir", "layout", "mode"].some((key) =>
+    if (new URLSearchParams(location.hash.slice(1)).get("view") === "route") {
+      return false;
+    }
+    return !["dir", "layout", "mode"].some((key) =>
       params.has(key)
     );
   }
@@ -2127,14 +2264,15 @@
 
     if (params.get("mode") === "snapshot") state.mode = "snapshot";
 
-    if (params.get("view") === "route") {
-      const from = parsePointParam(params.get("from"));
-      const to = parsePointParam(params.get("to"));
+    const routeParams = new URLSearchParams(location.hash.slice(1));
+    if (routeParams.get("view") === "route") {
+      const from = parsePointParam(routeParams.get("from"));
+      const to = parsePointParam(routeParams.get("to"));
       if (from && to) {
-        const fromName = params.get("fromName") || "Partenza";
-        const toName = params.get("toName") || "Arrivo";
-        const only = params.get("only") !== "0";
-        const routeDirection = params.get("routeDir") === "in" ? "in" : "out";
+        const fromName = routeParams.get("fromName") || "Partenza";
+        const toName = routeParams.get("toName") || "Arrivo";
+        const only = routeParams.get("only") !== "0";
+        const routeDirection = routeParams.get("routeDir") === "in" ? "in" : "out";
         state.pendingRoute = {
           from: { ...from, label: fromName, name: fromName },
           to: { ...to, label: toName, name: toName },
@@ -2152,9 +2290,19 @@
 
   mobileQuery.addEventListener("change", handleViewportChange);
   compactQuery.addEventListener("change", handleViewportChange);
+  window.addEventListener("hashchange", () => {
+    if (new URLSearchParams(location.hash.slice(1)).get("view") !== "route") return;
+    applyUrlState();
+    syncUrl();
+    if (state.pendingRoute) {
+      closeRoutePanel();
+      startPendingRoute();
+    }
+  });
 
   const welcome = isFirstLanding();
   applyUrlState();
+  syncUrl();
   updateTabs();
   syncLayoutButtons();
   syncModeButton();
@@ -2167,7 +2315,6 @@
   } else if (welcome) {
     openRoutePanel({ welcome: true });
   } else {
-    syncUrl();
     load(true);
   }
   if (!welcome) setAuto(true);
