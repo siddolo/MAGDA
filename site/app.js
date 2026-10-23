@@ -1576,7 +1576,7 @@
       const to = state.routeTo.name || "Arrivo";
       brandTitle.textContent = "Percorso";
       brandRoute.textContent = `${from} → ${to}`;
-      document.title = "MAGDA · Webcam percorso";
+      document.title = `MAGDA - Webcam percorso ${from} - ${to}`;
       return;
     }
     brandTitle.textContent = "Webcam";
