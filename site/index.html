@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="strict-origin">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://video.autostrade.it; media-src 'self' https://video.autostrade.it; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <link rel="icon" href="./logo-mark-64.png" type="image/png">
   <link rel="apple-touch-icon" href="./logo-mark.png">
@@ -64,7 +65,8 @@
       <h3>Dati e connessioni</h3>
       <ul>
         <li>il browser contatta <strong>direttamente</strong> i server di Autostrade per l'Italia per immagini e video: il tuo indirizzo IP è quindi visibile a quei server;</li>
-        <li>le coordinate di partenza e arrivo sono conservate nella URL della pagina;</li>
+        <li>coordinate e nomi del percorso restano in memoria durante la consultazione e non vengono salvati automaticamente nell'URL o nel titolo della pagina; ricaricando la pagina il percorso viene perso;</li>
+        <li>con «Copia link al percorso» puoi salvarlo o condividerlo: i dati sono nel frammento <code>#</code>, non inviato all'hosting né negli header Referer, ma visibile a chi riceve il link e conservabile nella cronologia del browser;</li>
         <li>il testo cercato viene inviato a Photon (fallback Nominatim) e le coordinate a OSRM quando usi il percorso;</li>
         <li>GitHub Pages, che ospita il sito, può registrare l'IP secondo la propria informativa.</li>
       </ul>
@@ -119,6 +121,10 @@
         <button type="button" id="prev" title="Pagina precedente (←)" aria-label="Pagina precedente">‹</button>
         <span id="pager" class="pager">1 / 1</span>
         <button type="button" id="next" title="Pagina successiva (→)" aria-label="Pagina successiva">›</button>
+      </div>
+
+      <div class="group" role="group" aria-label="Condivisione percorso">
+        <button type="button" id="route-share" disabled title="Copia un link con coordinate e nomi del percorso">Copia link al percorso</button>
       </div>
 
       <div class="group" role="group" aria-label="Azioni">

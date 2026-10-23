@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="strict-origin">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://video.autostrade.it; media-src 'self' https://video.autostrade.it; connect-src 'self' https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <link rel="icon" href="./logo-mark-64.png" type="image/png">
   <title>Informativa privacy · MAGDA</title>
@@ -22,7 +23,8 @@
     <ul>
       <li><strong>Indirizzo IP</strong>: è visibile a GitHub Pages, che ospita il sito, e ai server di Autostrade per l'Italia quando il browser carica immagini e video delle webcam.</li>
       <li><strong>Sfondo iniziale</strong>: usa immagini statiche, senza caricarle da fonti esterne.</li>
-      <li><strong>Coordinate di partenza e arrivo</strong>: sono inserite nella URL della pagina per permettere ricarica e condivisione del percorso.</li>
+      <li><strong>Coordinate e nomi di partenza e arrivo</strong>: restano in memoria durante la consultazione, senza essere salvati automaticamente nell'URL o nel titolo della pagina. Ricaricando la pagina il percorso viene perso.</li>
+      <li><strong>Condivisione del percorso</strong>: il pulsante «Copia link al percorso» genera un link con coordinate e nomi nel frammento <code>#</code>. Questo frammento non viene inviato all'hosting né negli header Referer, ma è visibile a chi riceve il link e può restare negli appunti, nei segnalibri e nella cronologia del browser. All'apertura il percorso viene letto e il frammento rimosso dalla barra degli indirizzi.</li>
       <li><strong>Testo della ricerca località</strong>: viene inviato a Photon (Komoot) e, come fallback, a Nominatim (OpenStreetMap) per ottenere i suggerimenti.</li>
       <li><strong>Coordinate del percorso</strong>: vengono inviate a OSRM per calcolare il tragitto.</li>
       <li><strong>Parametri della vista</strong>: layout, direzione e modalità video/snapshot, conservati nella URL.</li>
@@ -47,7 +49,7 @@
     <p>L'app non conserva dati su un proprio server. Restano nel browser la cronologia, la URL corrente, la cache HTTP dei media e le eventuali cache dei risultati di geocoding, secondo le impostazioni dell'utente. I fornitori esterni possono conservare i dati secondo le rispettive informative.</p>
 
     <h2>Sicurezza</h2>
-    <p>Tutte le chiamate esterne usano HTTPS. La pagina applica una Content Security Policy che limita script e connessioni ai domini dichiarati. Non vengono usati <code>eval</code>, script di terze parti o dipendenze runtime esterne.</p>
+    <p>Tutte le chiamate esterne usano HTTPS. La pagina applica una Content Security Policy che limita script e connessioni ai domini dichiarati e una Referrer-Policy <code>strict-origin</code> che esclude percorso e query string dall'header Referer. Non vengono usati <code>eval</code>, script di terze parti o dipendenze runtime esterne.</p>
 
     <h2>Diritti dell'utente</h2>
     <p>L'utente può cancellare i dati locali svuotando la cache e la cronologia del browser. Per i dati trattati da GitHub, Autostrade, Photon, Nominatim o OSRM valgono le rispettive informative privacy. MAGDA è un progetto indipendente e non è un titolare del trattamento dei dati raccolti da questi servizi.</p>
