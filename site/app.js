@@ -47,6 +47,9 @@
   const DATA_URL = "./data/webcams.json";
   const WELCOME_GROUP_COUNT = 10;
   const WELCOME_IMAGE_COUNT = 8;
+  const MAX_JSON_BYTES = 10 * 1024 * 1024;
+  const MAX_CAMERAS = 10_000;
+  const MAX_GEOCODE_RESULTS = 100;
   const DEFAULT_ROAD = "A01";
   const DEFAULT_KM_FROM = 570;
   const DEFAULT_KM_TO = 705;
@@ -242,6 +245,33 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  async function readJson(response) {
+    if (Number(response.headers.get("Content-Length")) > MAX_JSON_BYTES) {
+      if (response.body) await response.body.cancel();
+      throw new Error("Risposta troppo grande");
+    }
+    if (!response.body) throw new Error("Risposta vuota");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    let text = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_JSON_BYTES) throw new Error("Risposta troppo grande");
+        text += decoder.decode(value, { stream: true });
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    return JSON.parse(text + decoder.decode());
+  }
+
   async function fetchJson(url, options = {}) {
     const { timeout = 15_000, ...rest } = options;
     const signal =
@@ -256,8 +286,9 @@
     });
     let data = null;
     try {
-      data = await response.json();
+      data = await readJson(response);
     } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       data = null;
     }
     if (!response.ok) {
@@ -286,7 +317,12 @@
   function loadData(force = false) {
     if (force || !state.dataPromise) {
       const url = force ? `${DATA_URL}?t=${Date.now()}` : DATA_URL;
-      state.dataPromise = fetch(url, { cache: "no-store" })
+      state.dataPromise = fetch(url, {
+        cache: "no-store",
+        signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout
+          ? AbortSignal.timeout(15_000)
+          : undefined,
+      })
         .then(async (response) => {
           if (!response.ok) {
             if (response.status === 404) {
@@ -297,12 +333,19 @@
             }
             throw new Error(`errore HTTP ${response.status}`);
           }
-          const data = await response.json();
-          if (!Array.isArray(data.cameras)) {
+          const data = await readJson(response);
+          if (!data || !Array.isArray(data.cameras) || !data.cameras.length) {
             throw new Error("formato dell'archivio webcam non valido");
           }
+          if (data.cameras.length > MAX_CAMERAS) {
+            throw new Error("L'archivio supera il numero massimo di webcam");
+          }
+          if (data.cameras.some((camera) => !camera || typeof camera !== "object" || Array.isArray(camera))) {
+            throw new Error("formato dell'archivio webcam non valido");
+          }
+          const cameras = defaultCameras(data.cameras);
           state.allCameras = data.cameras;
-          state.cameras = defaultCameras(data.cameras);
+          state.cameras = cameras;
           state.statsFetchedAt = data.fetchedAt || "";
           return data;
         })
@@ -382,6 +425,9 @@
       timeout: 8000,
     });
     const features = Array.isArray(data.features) ? data.features : [];
+    if (features.length > MAX_GEOCODE_RESULTS) {
+      throw new Error("Troppi risultati dal servizio di ricerca");
+    }
     const needle = query.toLocaleLowerCase("it");
     const candidates = [];
 
@@ -478,6 +524,9 @@
     const data = await fetchJson(`${NOMINATIM_URL}?${params.toString()}`, {
       timeout: 8000,
     });
+    if (Array.isArray(data) && data.length > MAX_GEOCODE_RESULTS) {
+      throw new Error("Troppi risultati dal servizio di ricerca");
+    }
     const results = [];
     const seen = new Set();
     for (const item of Array.isArray(data) ? data : []) {
